@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
@@ -7,12 +9,16 @@ from jax import Array
 from logsumexp import logsumexp
 
 
-@jax.jit
-def likelihood(observations: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+@partial(jax.jit, static_argnames=["return_stats"])
+def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
 
     Returns:
+        - Likelihood of the sequence.
+
+        If `return_stats = True` instead you get:
+
         - `state_likelihoods`, the likelihood of being in a given state at the end of a sequence
         - `likelihood_sequence`, where each entry corresponds to the likelihood of the observation
     sequence up to that index. `likelihood_sequence[-1]` is the likelihood of the entire sequence.
@@ -42,13 +48,26 @@ def likelihood(observations: Array, T: Array, O: Array, mu: Array) -> tuple[Arra
          likelihood_sequence]
     )
 
-    return state_likelihoods, likelihood_sequence
+    if return_stats:
+        return state_likelihoods, likelihood_sequence
+    else:
+        return likelihood_sequence[-1]
 
 
-@jax.jit
-def log_likelihood(observations: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+@partial(jax.jit, static_argnames=["return_stats"])
+def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
+
+    Returns:
+        - Log likelihood of the sequence.
+
+        If `return_stats = True` instead you get:
+
+        - `state_loglikelihoods`, the log likelihood of being in a given state at the end of a sequence
+        - `loglikelihood_sequence`, where each entry corresponds to the log likelihood of the observation
+    sequence up to that index. `loglikelihood_sequence[-1]` is the log likelihood of the entire sequence.
+
     """
 
     def loop_body(state_loglikelihoods, obs):
@@ -75,4 +94,7 @@ def log_likelihood(observations: Array, T: Array, O: Array, mu: Array) -> tuple[
          loglikelihood_sequence]
     )
 
-    return state_loglikelihoods, loglikelihood_sequence
+    if return_stats:
+        return state_loglikelihoods, loglikelihood_sequence
+    else:
+        return loglikelihood_sequence[-1]

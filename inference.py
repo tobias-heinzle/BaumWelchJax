@@ -14,6 +14,13 @@ def normalize_rows(vec: Array) -> Array:
 
 @jax.jit
 def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+    """
+    Computes the forward and backward probability distributions of being in a given state,
+    conditioned on all observations prior and after. Then returns 
+
+    - `gamma`, the matrix containing the state distribution for each point in time 
+    """
+
     n = mu.shape[0]
     t_max = len(obs)
 
@@ -53,6 +60,7 @@ def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, 
     # likelihood = jnp.sum(alpha[t_max - 1])
     # jax.debug.print("{}", likelihood)
     gamma = (alpha * beta)  # / likelihood
+    gamma = normalize_rows(gamma)
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
