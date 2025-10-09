@@ -3,10 +3,10 @@ from functools import partial
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 from jax import Array
 
-from logsumexp import logsumexp
 
 
 @partial(jax.jit, static_argnames=["return_stats"])
@@ -25,9 +25,9 @@ def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats:
 
     """
 
-    def loop_body(state_likelihoods, obs):
-        state_likelihoods = state_likelihoods @ T * O[:, obs]
-        return state_likelihoods, jnp.sum(state_likelihoods)
+    def loop_body(llhood, obs):
+        llhood = llhood @ T * O[:, obs]
+        return llhood, jnp.sum(llhood)
 
     initial_likelihoods = mu * O[:, observations[0]]
 
@@ -70,10 +70,13 @@ def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_st
 
     """
 
-    def loop_body(state_loglikelihoods, obs):
-        state_loglikelihoods = jax.vmap(logsumexp)(
-            state_loglikelihoods[None, :] + jnp.log(T)) + jnp.log(O[:, obs])
-        return state_loglikelihoods, logsumexp(state_loglikelihoods)
+    log_T = jnp.log(T)
+    log_O = jnp.log(O)
+
+    def loop_body(log_llhood, obs):
+        log_llhood = logsumexp(
+            log_llhood[:, None] + log_T, axis=0) + log_O[:, obs]
+        return log_llhood, logsumexp(log_llhood)
 
     initial_loglikelihoods = jnp.log(mu) + jnp.log(O[:, observations[0]])
 
@@ -90,7 +93,7 @@ def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_st
     )
 
     loglikelihood_sequence = jnp.concat(
-        [jnp.sum(initial_loglikelihoods)[None],
+        [logsumexp(initial_loglikelihoods)[None],
          loglikelihood_sequence]
     )
 
