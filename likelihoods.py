@@ -78,7 +78,7 @@ def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_st
             log_llhood[:, None] + log_T, axis=0) + log_O[:, obs]
         return log_llhood, logsumexp(log_llhood)
 
-    initial_loglikelihoods = jnp.log(mu) + jnp.log(O[:, observations[0]])
+    initial_loglikelihoods = jnp.log(mu) + log_O[:, observations[0]]
 
     state_loglikelihoods, loglikelihood_sequence = lax.scan(
         loop_body,
