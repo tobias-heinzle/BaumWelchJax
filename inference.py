@@ -1,24 +1,26 @@
-from functools import partial
-
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 from jax import Array
 
+from jit_wrapper import wrapped_jit
 
 def normalize_rows(vec: Array) -> Array:
     sum_vec = jnp.sum(vec, axis=-1)
     return jnp.nan_to_num(vec / sum_vec[..., None], 0.0)
 
 
-@jax.jit
+@wrapped_jit()
 def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
     """
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. Then returns 
 
-    - `gamma`, the matrix containing the state distribution for each point in time 
+    Returns:
+    - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
+    - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
     """
 
     n = mu.shape[0]
@@ -56,10 +58,7 @@ def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, 
     # Reverse beta
     beta = jnp.flip(beta, axis=0)
 
-    # If alpha is normalized in each step of the algorithm anyways, we can avoid this
-    # likelihood = jnp.sum(alpha[t_max - 1])
-    # jax.debug.print("{}", likelihood)
-    gamma = (alpha * beta)  # / likelihood
+    gamma = (alpha * beta)
     gamma = normalize_rows(gamma)
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
@@ -70,10 +69,12 @@ def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, 
     # and then multiplying each slice componentwise with _T
     xi = xi * T[None, ...]
 
+    xi = xi / jnp.sum(xi, axis=(1, 2))[:, None, None]
+
     return gamma, xi
 
 
-@partial(jax.jit, static_argnames=["max_iter", "epsilon"])
+@wrapped_jit(static_argnames=["max_iter", "epsilon"])
 def baum_welch(
         obs: Array,
         T_0: Array,
@@ -123,3 +124,88 @@ def baum_welch(
         jnp.max(jnp.abs(jnp.diff(T_seq, 1, axis=0)), axis=(1, 2)) < epsilon)
 
     return T_seq[convergence_idx], O_seq[convergence_idx]
+
+
+@wrapped_jit()
+def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+    """
+    Computes the forward and backward probability log probabilities of being in a given state,
+    conditioned on all observations prior and after. Then returns 
+
+    Returns:
+    - `gamma`, the matrix whose entries `gamma[i,j]` denote the log probabilities of being in state `j` for each time `i`
+    - `xi`, the tensor whose entries`xi[i,j,k]` denote the log probabilities of in state `j` and transitioning to state `k` at time `i`
+    """
+
+    n = mu.shape[0]
+    t_max = len(obs)
+
+    log_T = jnp.log(T)
+    log_O = jnp.log(O)
+
+    # Initialize forward probabilities
+    alpha_0 = jnp.log(mu) + log_O[:, obs[0]]
+
+    #alpha_0 = normalize_rows(alpha_0)  # alpha_0 / jnp.sum(alpha_0)
+    alpha_0 = alpha_0 - logsumexp(alpha_0)
+
+    # Initialize backward probabilities
+    beta_t_max = jnp.log(jnp.ones(n) / n)
+
+    def step(carry, t):
+        alpha, beta = carry
+
+        # alpha = (alpha @ T) * O[:, obs[t]]
+        alpha = logsumexp(
+            alpha[:, None] + log_T, axis=0) + log_O[:, obs[t]]
+
+        # beta = T @ (O[:, obs[t_max - t]] * beta)
+        beta = logsumexp(
+            log_T + (log_O[:, obs[t_max - t]] + beta)[None, :], 
+            axis=1)
+
+        alpha = alpha - logsumexp(alpha)
+        beta = beta - logsumexp(beta)
+
+        # alpha = normalize_rows(alpha)  # alpha / jnp.sum(alpha)
+        # beta = normalize_rows(beta)  # beta / jnp.sum(beta)
+
+        return (alpha, beta), (alpha, beta)
+
+    # Calculate alpha and beta iteratively
+    _, (alpha, beta) = lax.scan(
+        f=step,
+        init=(alpha_0, beta_t_max),
+        xs=jnp.arange(1, t_max)
+    )
+
+    # Join with the initial values
+    alpha = jnp.concat([alpha_0[None, :], alpha])
+    beta = jnp.concat([beta_t_max[None, :], beta])
+
+    # Reverse beta
+    beta = jnp.flip(beta, axis=0)
+
+    gamma = alpha + beta
+    gamma -= logsumexp(gamma, axis=1)[:,None]
+
+    # gamma = (alpha * beta)
+    # gamma = normalize_rows(gamma)
+
+    # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
+    # for each combination of alpha_t and beta_t+1
+    # obs_probs = jnp.take(O, obs[1:], axis=1).T
+    # xi = jnp.einsum("ij, ik->ijk", alpha[:-1], beta[1:] * obs_probs)
+    obs_logprobs = jnp.take(log_O, obs[1:], axis=1).T
+
+    xi = alpha[:-1, :, None] @ jnp.ones((1, n))
+    xi += jnp.matrix_transpose(obs_logprobs[:,:,None] @ jnp.ones((1, n)))
+    xi += jnp.matrix_transpose(beta[1:, :, None] @ jnp.ones((1, n)))
+    xi += log_T[None, ...]
+    xi -= logsumexp(xi, axis=(1,2))[:, None, None]
+    # and then multiplying each slice componentwise with _T
+    # xi = xi * T[None, ...]
+
+    # xi = xi / jnp.sum(xi, axis=(1, 2))[:, None, None]
+
+    return gamma, xi

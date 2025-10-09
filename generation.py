@@ -1,4 +1,3 @@
-from functools import partial
 
 import jax
 import jax.lax as lax
@@ -6,8 +5,10 @@ import jax.numpy as jnp
 
 from jax import Array
 
+from jit_wrapper import wrapped_jit
 
-@partial(jax.jit, static_argnames="length")
+
+@wrapped_jit(static_argnames="length")
 def generate_sequence(
         key: Array,
         transition_matrix: Array, 
@@ -37,7 +38,7 @@ def generate_sequence(
 
     return states, observations
 
-@partial(jax.jit, static_argnames="length")
+@wrapped_jit(static_argnames="length")
 def generate_sequence_choice(
         key: Array,
         transition_matrix: Array, 

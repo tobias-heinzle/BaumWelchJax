@@ -1,15 +1,13 @@
-from functools import partial
 
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from jax import Array
 
+from jit_wrapper import wrapped_jit
 
-
-@partial(jax.jit, static_argnames=["return_stats"])
+@wrapped_jit(static_argnames=["return_stats"])
 def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
@@ -54,7 +52,7 @@ def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats:
         return likelihood_sequence[-1]
 
 
-@partial(jax.jit, static_argnames=["return_stats"])
+@wrapped_jit(static_argnames=["return_stats"])
 def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
