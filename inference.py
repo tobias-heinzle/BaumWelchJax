@@ -145,8 +145,6 @@ def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Arr
 
     # Initialize forward probabilities
     alpha_0 = jnp.log(mu) + log_O[:, obs[0]]
-
-    #alpha_0 = normalize_rows(alpha_0)  # alpha_0 / jnp.sum(alpha_0)
     alpha_0 = alpha_0 - logsumexp(alpha_0)
 
     # Initialize backward probabilities
@@ -155,20 +153,15 @@ def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Arr
     def step(carry, t):
         alpha, beta = carry
 
-        # alpha = (alpha @ T) * O[:, obs[t]]
         alpha = logsumexp(
             alpha[:, None] + log_T, axis=0) + log_O[:, obs[t]]
 
-        # beta = T @ (O[:, obs[t_max - t]] * beta)
         beta = logsumexp(
             log_T + (log_O[:, obs[t_max - t]] + beta)[None, :], 
             axis=1)
 
         alpha = alpha - logsumexp(alpha)
         beta = beta - logsumexp(beta)
-
-        # alpha = normalize_rows(alpha)  # alpha / jnp.sum(alpha)
-        # beta = normalize_rows(beta)  # beta / jnp.sum(beta)
 
         return (alpha, beta), (alpha, beta)
 
@@ -189,23 +182,73 @@ def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Arr
     gamma = alpha + beta
     gamma -= logsumexp(gamma, axis=1)[:,None]
 
-    # gamma = (alpha * beta)
-    # gamma = normalize_rows(gamma)
-
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
-    # obs_probs = jnp.take(O, obs[1:], axis=1).T
-    # xi = jnp.einsum("ij, ik->ijk", alpha[:-1], beta[1:] * obs_probs)
+    # This calculation changes a little bit in log space, the outer product multiplications
+    # become an addition and the normalization a subtraction of the logsumexp
     obs_logprobs = jnp.take(log_O, obs[1:], axis=1).T
 
     xi = alpha[:-1, :, None] @ jnp.ones((1, n))
     xi += jnp.matrix_transpose(obs_logprobs[:,:,None] @ jnp.ones((1, n)))
     xi += jnp.matrix_transpose(beta[1:, :, None] @ jnp.ones((1, n)))
     xi += log_T[None, ...]
-    xi -= logsumexp(xi, axis=(1,2))[:, None, None]
-    # and then multiplying each slice componentwise with _T
-    # xi = xi * T[None, ...]
 
-    # xi = xi / jnp.sum(xi, axis=(1, 2))[:, None, None]
+    # Normalize
+    xi -= logsumexp(xi, axis=(1,2))[:, None, None]
 
     return gamma, xi
+
+
+
+@wrapped_jit(static_argnames=["max_iter", "epsilon"])
+def baum_welch_log(
+        obs: Array,
+        T_0: Array,
+        O_0: Array,
+        mu: Array,
+        max_iter=100,
+        epsilon=1e-4) -> tuple[Array, Array]:
+
+    parallel_mode = len(obs.shape) > 1
+
+    m = O_0.shape[-1]
+
+    def iteration(carry: tuple[Array, Array], _: None) -> tuple[Array, Array]:
+
+        T, O = carry
+
+        # E - step
+        # (Forward-Backward algorithm for estimating transition and emission probabilities)
+        if parallel_mode:
+            gamma, xi = jax.vmap(
+                lambda _o: forward_backward_log(_o, T, O, mu))(obs)
+
+            gamma = jnp.concat(gamma, axis=0)
+            xi = jnp.concat(xi, axis=0)
+        else:
+            gamma, xi = forward_backward_log(obs, T, O, mu)
+
+        # M - step
+        # Average over all time steps and normalize along rows => new estimate for T
+        T = logsumexp(xi, axis=0)
+        T -= logsumexp(T, axis=1)
+        # T = normalize_rows(T)  # T / jnp.sum(T, axis=-1)[..., None]
+
+        O = lax.map(lambda o: logsumexp(
+            jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
+        O -= logsumexp(gamma, axis=0)[..., None]
+        # O = O / jnp.sum(gamma, axis=0)[..., None]
+
+        return (T, O), (T, O)
+
+    _, (T_seq, O_seq) = lax.scan(
+        iteration,
+        init=(T_0.copy(), O_0.copy()),
+        length=max_iter
+    )
+
+    # Pick the first index where the max difference between subsequent iterations is below epsilon
+    convergence_idx = jnp.argmax(
+        jnp.max(jnp.abs(jnp.diff(jnp.exp(T_seq), 1, axis=0)), axis=(1, 2)) < epsilon)
+
+    return jnp.exp(T_seq[convergence_idx]), jnp.exp(O_seq[convergence_idx])
