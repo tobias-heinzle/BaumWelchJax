@@ -231,7 +231,7 @@ def baum_welch_log(
         # M - step
         # Average over all time steps and normalize along rows => new estimate for T
         T = logsumexp(xi, axis=0)
-        T -= logsumexp(T, axis=1)
+        T -= logsumexp(T, axis=-1)[..., None]
 
         O = lax.map(lambda o: logsumexp(
             jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
