@@ -5,10 +5,10 @@ from jax.scipy.special import logsumexp
 
 from jax import Array
 
-from jit_wrapper import wrapped_jit
+from ..util import wrapped_jit
 
 @wrapped_jit(static_argnames=["return_stats"])
-def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
+def likelihood(obs: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
 
@@ -27,33 +27,29 @@ def likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats:
         llhood = llhood @ T * O[:, obs]
         return llhood, jnp.sum(llhood)
 
-    initial_likelihoods = mu * O[:, observations[0]]
+    initial_likelihoods = mu * O[:, obs[0]]
 
-    state_likelihoods, likelihood_sequence = lax.scan(
+
+    state_likelihoods, sequence_likelihoods = lax.scan(
         loop_body,
         initial_likelihoods,
-        observations[1:],
+        obs[1:],
         unroll=False
     )
 
-    state_likelihoods = jnp.concat(
-        [initial_likelihoods,
-         state_likelihoods]
-    )
-
-    likelihood_sequence = jnp.concat(
+    sequence_likelihoods = jnp.concat(
         [jnp.sum(initial_likelihoods)[None],
-         likelihood_sequence]
+         sequence_likelihoods]
     )
 
     if return_stats:
-        return state_likelihoods, likelihood_sequence
+        return state_likelihoods, sequence_likelihoods
     else:
-        return likelihood_sequence[-1]
+        return sequence_likelihoods[-1]
 
 
 @wrapped_jit(static_argnames=["return_stats"])
-def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
+def log_likelihood(obs: Array, T: Array, O: Array, mu: Array, return_stats: bool = False) -> Array | tuple[Array, Array]:
     """
     Compute the likelihood of observing the sequence `obs` given the parameters `T`, `O` and `mu`
 
@@ -76,18 +72,13 @@ def log_likelihood(observations: Array, T: Array, O: Array, mu: Array, return_st
             log_llhood[:, None] + log_T, axis=0) + log_O[:, obs]
         return log_llhood, logsumexp(log_llhood)
 
-    initial_loglikelihoods = jnp.log(mu) + log_O[:, observations[0]]
+    initial_loglikelihoods = jnp.log(mu) + log_O[:, obs[0]]
 
     state_loglikelihoods, loglikelihood_sequence = lax.scan(
         loop_body,
         initial_loglikelihoods,
-        observations[1:],
+        obs[1:],
         unroll=False
-    )
-
-    state_loglikelihoods = jnp.concat(
-        [initial_loglikelihoods,
-         state_loglikelihoods]
     )
 
     loglikelihood_sequence = jnp.concat(

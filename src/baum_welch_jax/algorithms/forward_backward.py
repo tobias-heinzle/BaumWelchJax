@@ -1,22 +1,37 @@
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from jax import Array
 
-from jit_wrapper import wrapped_jit
+from ..util import wrapped_jit, normalize_rows
 
-def normalize_rows(vec: Array) -> Array:
-    sum_vec = jnp.sum(vec, axis=-1)
-    return jnp.nan_to_num(vec / sum_vec[..., None], 0.0)
-
-
-@wrapped_jit()
-def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+@wrapped_jit(static_argnames=['mode'])
+def forward_backward(obs: Array, T: Array, O: Array, mu: Array, mode: str = 'log') -> tuple[Array, Array]:
     """
     Computes the forward and backward probability distributions of being in a given state,
-    conditioned on all observations prior and after. Then returns 
+    conditioned on all observations prior and after. All in one single pass over the observations.
+    The mode parameter can either be 'log' or 'regular' and controls wether computations are carried out
+    using the log probabilities or the regular probabilities. Log mode is standard, regular mode will often
+    result in numerical underflow and is just present for sanity checking the implementation.
+
+    Returns:
+    - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
+    - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
+    """
+
+    if mode == 'log':
+        return _forward_backward_log(obs, T, O, mu)
+    elif mode == 'regular':
+        return _forward_backward(obs, T, O, mu)
+    else:
+        raise ValueError('mode argument must be either "log" or "regular"!')
+
+@wrapped_jit()
+def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+    """
+    Computes the forward and backward probability distributions of being in a given state,
+    conditioned on all observations prior and after. All in one single pass over the observations.
 
     Returns:
     - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
@@ -73,64 +88,11 @@ def forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, 
 
     return gamma, xi
 
-
-@wrapped_jit(static_argnames=["max_iter", "epsilon"])
-def baum_welch(
-        obs: Array,
-        T_0: Array,
-        O_0: Array,
-        mu: Array,
-        max_iter=100,
-        epsilon=1e-4) -> tuple[Array, Array]:
-
-    parallel_mode = len(obs.shape) > 1
-
-    m = O_0.shape[-1]
-
-    def iteration(carry: tuple[Array, Array], _: None) -> tuple[Array, Array]:
-
-        T, O = carry
-
-        # E - step
-        # (Forward-Backward algorithm for estimating transition and emission probabilities)
-        if parallel_mode:
-            gamma, xi = jax.vmap(
-                lambda _o: forward_backward(_o, T, O, mu))(obs)
-
-            gamma = jnp.concat(gamma, axis=0)
-            xi = jnp.concat(xi, axis=0)
-        else:
-            gamma, xi = forward_backward(obs, T, O, mu)
-
-        # M - step
-        # Average over all time steps and normalize along rows => new estimate for T
-        T = jnp.sum(xi, axis=0)
-        T = normalize_rows(T)  # T / jnp.sum(T, axis=-1)[..., None]
-
-        O = lax.map(lambda o: jnp.sum(
-            (obs.ravel() == o)[:, None] * gamma, axis=0), jnp.arange(m)).T
-        O = O / jnp.sum(gamma, axis=0)[..., None]
-
-        return (T, O), (T, O)
-
-    _, (T_seq, O_seq) = lax.scan(
-        iteration,
-        init=(T_0.copy(), O_0.copy()),
-        length=max_iter
-    )
-
-    # Pick the first index where the max difference between subsequent iterations is below epsilon
-    convergence_idx = jnp.argmax(
-        jnp.max(jnp.abs(jnp.diff(T_seq, 1, axis=0)), axis=(1, 2)) < epsilon)
-
-    return T_seq[convergence_idx], O_seq[convergence_idx]
-
-
 @wrapped_jit()
-def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
     """
     Computes the forward and backward probability log probabilities of being in a given state,
-    conditioned on all observations prior and after. Then returns 
+    conditioned on all observations prior and after. All in a single loop over the observations. 
 
     Returns:
     - `gamma`, the matrix whose entries `gamma[i,j]` denote the log probabilities of being in state `j` for each time `i`
@@ -198,55 +160,3 @@ def forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Arr
 
     return gamma, xi
 
-
-
-@wrapped_jit(static_argnames=["max_iter", "epsilon"])
-def baum_welch_log(
-        obs: Array,
-        T_0: Array,
-        O_0: Array,
-        mu: Array,
-        max_iter=100,
-        epsilon=1e-4) -> tuple[Array, Array]:
-
-    parallel_mode = len(obs.shape) > 1
-
-    m = O_0.shape[-1]
-
-    def iteration(carry: tuple[Array, Array], _: None) -> tuple[Array, Array]:
-
-        T, O = carry
-
-        # E - step
-        # (Forward-Backward algorithm for estimating transition and emission probabilities)
-        if parallel_mode:
-            gamma, xi = jax.vmap(
-                lambda _o: forward_backward_log(_o, T, O, mu))(obs)
-
-            gamma = jnp.concat(gamma, axis=0)
-            xi = jnp.concat(xi, axis=0)
-        else:
-            gamma, xi = forward_backward_log(obs, T, O, mu)
-
-        # M - step
-        # Average over all time steps and normalize along rows => new estimate for T
-        T = logsumexp(xi, axis=0)
-        T -= logsumexp(T, axis=-1)[..., None]
-
-        O = lax.map(lambda o: logsumexp(
-            jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
-        O -= logsumexp(gamma, axis=0)[..., None]
-
-        return (T, O), (T, O)
-
-    _, (T_seq, O_seq) = lax.scan(
-        iteration,
-        init=(T_0.copy(), O_0.copy()),
-        length=max_iter
-    )
-
-    # Pick the first index where the max difference between subsequent iterations is below epsilon
-    convergence_idx = jnp.argmax(
-        jnp.max(jnp.abs(jnp.diff(jnp.exp(T_seq), 1, axis=0)), axis=(1, 2)) < epsilon)
-
-    return jnp.exp(T_seq[convergence_idx]), jnp.exp(O_seq[convergence_idx])

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "baum_welch_jax"
+version = "0.1.0"
+description = "Baum-Welch implementation using JAX"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Tobias Heinzle", email = "tobias.heinzle@tum.de" }
+]
+
+dependencies = [
+    "jax",
+    "jax_tqdm",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "jax[cuda]",
+]
+
+dev = [
+    "pytest",
+]
+
+notebook = [
+    "ipykernel",
+    "matplotlib"
+]
+
+[project.urls]
+Repository = "https://github.com/tobias-heinzle/BaumWelchJax"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/baum_welch_jax"]
