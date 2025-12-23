@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 
+from baum_welch_jax.models import HiddenMarkovModel
 
 T_TEST = jnp.array([
 	[0.19243171477714208, 0.09946564190896066, 0.4439127902794604, 0.2641898530344369],
@@ -14,6 +15,8 @@ O_TEST = jnp.array([
 	[0.3752778951585183, 0.25413603861678963, 0.3705860662246921],
 	[0.2132723459115592, 0.5360110824786332, 0.2507165716098077]
 ])
+
+HMM_TEST = HiddenMarkovModel(T=T_TEST, O=O_TEST, mu=MU_TEST)
 
 # These test values below were computed based on 2_000_000 sequences of length 5,
 # sampled with the above parameters
@@ -417,6 +420,9 @@ O_TEST_STRUCTURED = jnp.array([
 	[0.2042705586529167, 0.39786472067354167, 0.39786472067354167],
 	[0.0, 0.0, 1.0]
 ])
+
+HMM_TEST_STRUCTURED = HiddenMarkovModel(T=T_TEST_STRUCTURED, O=O_TEST_STRUCTURED, mu=MU_TEST_STRUCTURED)
+
 
 TEST_SEQUENCES_STRUCTURED_5_STEPS = [
 	jnp.array([0,0,1,0,1]).astype(jnp.int32),

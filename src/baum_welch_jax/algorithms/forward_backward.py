@@ -5,9 +5,10 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, normalize_rows
+from ..models import HiddenMarkovModel
 
 @wrapped_jit(static_argnames=['mode'])
-def forward_backward(obs: Array, T: Array, O: Array, mu: Array, mode: str = 'log') -> tuple[Array, Array]:
+def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> tuple[Array, Array]:
     """
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. All in one single pass over the observations.
@@ -21,14 +22,14 @@ def forward_backward(obs: Array, T: Array, O: Array, mu: Array, mode: str = 'log
     """
 
     if mode == 'log':
-        return _forward_backward_log(obs, T, O, mu)
+        return _forward_backward_log(obs, hmm)
     elif mode == 'regular':
-        return _forward_backward(obs, T, O, mu)
+        return _forward_backward(obs, hmm)
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
 
 @wrapped_jit()
-def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]:
     """
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. All in one single pass over the observations.
@@ -38,11 +39,12 @@ def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array,
     - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
     """
 
-    n = mu.shape[0]
+
+    n = hmm.mu.shape[0]
     t_max = len(obs)
 
     # Initialize forward probabilities
-    alpha_0 = mu * O[:, obs[0]]
+    alpha_0 = hmm.mu * hmm.O[:, obs[0]]
     alpha_0 = normalize_rows(alpha_0)  # alpha_0 / jnp.sum(alpha_0)
 
     # Initialize backward probabilities
@@ -51,8 +53,8 @@ def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array,
     def step(carry, t):
         alpha, beta = carry
 
-        alpha = (alpha @ T) * O[:, obs[t]]
-        beta = T @ (O[:, obs[t_max - t]] * beta)
+        alpha = (alpha @ hmm.T) * hmm.O[:, obs[t]]
+        beta = hmm.T @ (hmm.O[:, obs[t_max - t]] * beta)
 
         alpha = normalize_rows(alpha)  # alpha / jnp.sum(alpha)
         beta = normalize_rows(beta)  # beta / jnp.sum(beta)
@@ -78,18 +80,18 @@ def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array,
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
-    obs_probs = jnp.take(O, obs[1:], axis=1).T
+    obs_probs = jnp.take(hmm.O, obs[1:], axis=1).T
     xi = jnp.einsum("ij, ik->ijk", alpha[:-1], beta[1:] * obs_probs)
 
-    # and then multiplying each slice componentwise with _T
-    xi = xi * T[None, ...]
+    # and then multiplying each slice componentwise with
+    xi = xi * hmm.T[None, ...]
 
     xi = xi / jnp.sum(xi, axis=(1, 2))[:, None, None]
 
     return gamma, xi
 
 @wrapped_jit()
-def _forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _forward_backward_log(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]:
     """
     Computes the forward and backward probability log probabilities of being in a given state,
     conditioned on all observations prior and after. All in a single loop over the observations. 
@@ -99,14 +101,14 @@ def _forward_backward_log(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Ar
     - `xi`, the tensor whose entries`xi[i,j,k]` denote the log probabilities of in state `j` and transitioning to state `k` at time `i`
     """
 
-    n = mu.shape[0]
+    n = hmm.mu.shape[0]
     t_max = len(obs)
 
-    log_T = jnp.log(T)
-    log_O = jnp.log(O)
+    log_T = jnp.log(hmm.T)
+    log_O = jnp.log(hmm.O)
 
     # Initialize forward probabilities
-    alpha_0 = jnp.log(mu) + log_O[:, obs[0]]
+    alpha_0 = jnp.log(hmm.mu) + log_O[:, obs[0]]
     alpha_0 = alpha_0 - logsumexp(alpha_0)
 
     # Initialize backward probabilities

@@ -4,6 +4,7 @@ from jax.scipy.special import logsumexp
 import pytest
 
 from baum_welch_jax.algorithms import likelihood, log_likelihood
+from baum_welch_jax.models import HiddenMarkovModel
 
 from conftest import *
 
@@ -23,9 +24,10 @@ def test_likelihood_sanity_check(initial_state, obs, likelihoods):
     O = jnp.eye(2)
     mu = jnp.zeros(2)
     mu = mu.at[initial_state].set(1.0)
+    hmm = HiddenMarkovModel(T, O, mu)
 
-    state_llhood, llhood_sequence = likelihood(obs, T, O, mu, return_stats=True)
-    llhood = likelihood(obs, T, O, mu, return_stats=False)
+    state_llhood, llhood_sequence = likelihood(obs, hmm, return_stats=True)
+    llhood = likelihood(obs, hmm, return_stats=False)
 
     assert len(llhood_sequence) == 1000
     assert state_llhood.shape == (2,)
@@ -46,9 +48,10 @@ def test_log_likelihood_sanity_check(initial_state, obs, likelihoods):
     O = jnp.eye(2)
     mu = jnp.zeros(2)
     mu = mu.at[initial_state].set(1.0)
+    hmm = HiddenMarkovModel(T, O, mu)
 
-    state_log_llhood, log_llhood_sequence = log_likelihood(obs, T, O, mu, return_stats=True)
-    log_llhood = log_likelihood(obs, T, O, mu, return_stats=False)
+    state_log_llhood, log_llhood_sequence = log_likelihood(obs, hmm, return_stats=True)
+    log_llhood = log_likelihood(obs, hmm, return_stats=False)
 
     assert len(log_llhood_sequence) == 1000
     assert state_log_llhood.shape == (2,)
@@ -61,11 +64,12 @@ def test_log_likelihood_long_sequence(eps, n):
     T = jnp.array([[1.0 - eps, eps], [0.0, 1.0]])
     O = jnp.eye(2)
     mu = jnp.array([1.0, 0.0])
+    hmm = HiddenMarkovModel(T, O, mu)
     obs = jnp.zeros(n)
     obs = obs.at[-1].set(1)
     obs = jnp.astype(obs, jnp.int32)
 
-    log_llhood = log_likelihood(obs, T, O, mu, return_stats=False)
+    log_llhood = log_likelihood(obs, hmm, return_stats=False)
 
     assert jnp.allclose(log_llhood, jnp.log(1.0 - eps) * (n - 1) + jnp.log(eps))
 
@@ -74,7 +78,7 @@ def test_log_likelihood_long_sequence(eps, n):
 @pytest.mark.parametrize('obs, llhood, final_state_distr', 
                          zip(TEST_SEQUENCES_5_STEPS, TEST_LIKELIHOODS_5_STEPS, FINAL_STATE_DISTR_5_STEPS))
 def test_likelihood_sampled_short(obs, llhood, final_state_distr):
-    state_llhoods, llhood_seq = likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=True)
+    state_llhoods, llhood_seq = likelihood(obs, HMM_TEST, return_stats=True)
     state_distribution = state_llhoods / jnp.sum(state_llhoods)
 
     assert jnp.allclose(llhood_seq[-1], llhood, rtol=0.03)
@@ -84,7 +88,7 @@ def test_likelihood_sampled_short(obs, llhood, final_state_distr):
 @pytest.mark.parametrize('obs, llhood, final_state_distr', 
                          zip(TEST_SEQUENCES_5_STEPS, TEST_LIKELIHOODS_5_STEPS, FINAL_STATE_DISTR_5_STEPS))
 def test_log_likelihood_sampled_short(obs, llhood, final_state_distr):
-    state_log_llhoods, log_llhood_seq = log_likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=True)
+    state_log_llhoods, log_llhood_seq = log_likelihood(obs, HMM_TEST, return_stats=True)
     state_distribution = jnp.exp(state_log_llhoods - logsumexp(state_log_llhoods))
     log_llhood = log_llhood_seq[-1]
 
@@ -93,14 +97,14 @@ def test_log_likelihood_sampled_short(obs, llhood, final_state_distr):
 
 @pytest.mark.parametrize('obs, llhood', zip(TEST_SEQUENCES_7_STEPS, TEST_LIKELIHOODS_7_STEPS))
 def test_likelihood_sampled_long(obs, llhood):
-    computed_llhood = likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=False)
+    computed_llhood = likelihood(obs, HMM_TEST, return_stats=False)
 
     assert jnp.allclose(computed_llhood, llhood, rtol=0.05)
 
 
 @pytest.mark.parametrize('obs, llhood', zip(TEST_SEQUENCES_7_STEPS, TEST_LIKELIHOODS_7_STEPS))
 def test_log_likelihood_sampled_long(obs, llhood):
-    computed_log_llhood = log_likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=False)
+    computed_log_llhood = log_likelihood(obs, HMM_TEST, return_stats=False)
 
     assert jnp.allclose(jnp.exp(computed_log_llhood), llhood, rtol=0.05)
 
@@ -115,7 +119,7 @@ def test_log_likelihood_sampled_long(obs, llhood):
                         )
 def test_likelihood_structured_sampled_short(obs, llhood, final_state_distr):
     state_llhoods, llhood_seq = likelihood(
-        obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=True)
+        obs, HMM_TEST_STRUCTURED, return_stats=True)
     state_distribution = state_llhoods / jnp.sum(state_llhoods)
 
     assert jnp.allclose(llhood_seq[-1], llhood, rtol=0.03)
@@ -131,7 +135,7 @@ def test_likelihood_structured_sampled_short(obs, llhood, final_state_distr):
                         )
 def test_log_likelihood_structured_sampled_short(obs, llhood, final_state_distr):
     state_log_llhoods, log_llhood_seq = log_likelihood(
-        obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=True)
+        obs, HMM_TEST_STRUCTURED, return_stats=True)
     state_distribution = jnp.exp(state_log_llhoods - logsumexp(state_log_llhoods))
     log_llhood = log_llhood_seq[-1]
 
@@ -146,7 +150,7 @@ def test_log_likelihood_structured_sampled_short(obs, llhood, final_state_distr)
                         )
 def test_likelihood_structured_sampled_long(obs, llhood):
     computed_llhood = likelihood(
-        obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=False)
+        obs, HMM_TEST_STRUCTURED, return_stats=False)
 
     assert jnp.allclose(computed_llhood, llhood, rtol=0.05)
 
@@ -158,22 +162,22 @@ def test_likelihood_structured_sampled_long(obs, llhood):
                              )
                         )
 def test_log_likelihood_structured_sampled_long(obs, llhood):
-    computed_log_llhood = log_likelihood(obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=False)
+    computed_log_llhood = log_likelihood(obs, HMM_TEST_STRUCTURED, return_stats=False)
 
     assert jnp.allclose(jnp.exp(computed_log_llhood), llhood, rtol=0.05)
 
 # Test if both algorithms compute the same numbers for relatively short sequences
 @pytest.mark.parametrize('obs', TEST_SEQUENCES_5_STEPS + TEST_SEQUENCES_6_STEPS + TEST_SEQUENCES_7_STEPS)
 def test_likelihood_agreement_structured(obs):
-    log_llhood = log_likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=False)
-    llhood = likelihood(obs, T_TEST, O_TEST, MU_TEST, return_stats=False)
+    log_llhood = log_likelihood(obs, HMM_TEST, return_stats=False)
+    llhood = likelihood(obs, HMM_TEST, return_stats=False)
 
     assert jnp.allclose(llhood, jnp.exp(log_llhood))
 
 
 @pytest.mark.parametrize('obs', TEST_SEQUENCES_STRUCTURED_5_STEPS + TEST_SEQUENCES_STRUCTURED_6_STEPS)
 def test_likelihood_agreement_structured(obs):
-    log_llhood = log_likelihood(obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=False)
-    llhood = likelihood(obs, T_TEST_STRUCTURED, O_TEST_STRUCTURED, MU_TEST_STRUCTURED, return_stats=False)
+    log_llhood = log_likelihood(obs, HMM_TEST_STRUCTURED, return_stats=False)
+    llhood = likelihood(obs, HMM_TEST_STRUCTURED, return_stats=False)
 
     assert jnp.allclose(llhood, jnp.exp(log_llhood))
