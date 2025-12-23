@@ -20,10 +20,17 @@ def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> t
     - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
     - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
     """
+    if not jnp.issubdtype(obs.dtype, jnp.integer):
+        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 
     if mode == 'log':
+        if not hmm.is_log:
+            hmm = hmm.to_log()
         return _forward_backward_log(obs, hmm)
+        
     elif mode == 'regular':
+        if hmm.is_log:
+            hmm = hmm.to_prob()
         return _forward_backward(obs, hmm)
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
@@ -39,6 +46,8 @@ def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]
     - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
     """
 
+    if hmm.is_log:
+        raise ValueError('HiddenMarkovModel (hmm) must be passed in regular probability mode')
 
     n = hmm.mu.shape[0]
     t_max = len(obs)
@@ -91,7 +100,7 @@ def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]
     return gamma, xi
 
 @wrapped_jit()
-def _forward_backward_log(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]:
+def _forward_backward_log(obs: Array, hmm_log: HiddenMarkovModel) -> tuple[Array, Array]:
     """
     Computes the forward and backward probability log probabilities of being in a given state,
     conditioned on all observations prior and after. All in a single loop over the observations. 
@@ -101,14 +110,18 @@ def _forward_backward_log(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Ar
     - `xi`, the tensor whose entries`xi[i,j,k]` denote the log probabilities of in state `j` and transitioning to state `k` at time `i`
     """
 
-    n = hmm.mu.shape[0]
+    if not hmm_log.is_log:
+        raise ValueError('HiddenMarkovModel (hmm_log) must be passed in log mode!')
+
+    n = hmm_log.mu.shape[0]
     t_max = len(obs)
 
-    log_T = jnp.log(hmm.T)
-    log_O = jnp.log(hmm.O)
+    log_T = hmm_log.T
+    log_O = hmm_log.O
+    log_mu = hmm_log.mu
 
     # Initialize forward probabilities
-    alpha_0 = jnp.log(hmm.mu) + log_O[:, obs[0]]
+    alpha_0 = log_mu + log_O[:, obs[0]]
     alpha_0 = alpha_0 - logsumexp(alpha_0)
 
     # Initialize backward probabilities

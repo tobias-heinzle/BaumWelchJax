@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 
 import pytest
@@ -5,6 +6,45 @@ import pytest
 from baum_welch_jax.algorithms import forward_backward
 
 from conftest import *
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+def test_fwd_bwd_dimensions(mode):
+	obs = jnp.zeros(100).astype(jnp.int32)
+	gamma, xi = forward_backward(obs, HMM_TRIVIAL, mode=mode)
+
+	assert gamma.shape[0] == 100
+	assert xi.shape[0] == 99
+	
+
+def test_fwd_bwd_dtype_errors():
+	obs = jnp.zeros(100).astype(jnp.float32)
+	
+	with pytest.raises(ValueError):
+		forward_backward(obs, HMM_TRIVIAL)
+
+@pytest.mark.parametrize('hmm, mode', [
+	(HMM_TRIVIAL, 'regular'),
+	(HMM_TRIVIAL, 'log'),
+	(HMM_TRIVIAL.to_log(), 'regular'),
+	(HMM_TRIVIAL.to_log(), 'log')	
+	])
+def test_fwd_bwd_trivial(hmm, mode):
+	obs = jnp.zeros(10).astype(jnp.int32)
+	state_distr = jnp.zeros((10,5))
+	state_distr = state_distr.at[:,0].set(1.0)
+	trans_distr = jnp.zeros((9,5,5))
+	trans_distr = trans_distr.at[:,0,0].set(1.0)
+	if mode == 'log':
+		state_distr = jnp.log(state_distr)
+		trans_distr = jnp.log(trans_distr)
+	
+	gamma, xi = forward_backward(obs, hmm, mode=mode)
+
+	assert jnp.allclose(gamma, state_distr)
+	assert jnp.allclose(xi, trans_distr)
+
+	
+
 
 # Test the gamma computation with random parameter set
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, STATE_DISTR_5_STEPS))

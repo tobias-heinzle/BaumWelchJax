@@ -15,6 +15,9 @@ def generate_sequence(
         hmm: HiddenMarkovModel, 
         length: int) -> Array:
 
+    if hmm.is_log:
+        hmm = hmm.to_prob()
+
     n, _ = hmm.O.shape
 
     initial_key, sampling_key = jax.random.split(key)

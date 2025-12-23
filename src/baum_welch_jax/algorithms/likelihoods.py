@@ -23,6 +23,11 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
     sequence up to that index. `likelihood_sequence[-1]` is the likelihood of the entire sequence.
 
     """
+    if not jnp.issubdtype(obs.dtype, jnp.integer):
+        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
+
+    if hmm.is_log:
+        hmm = hmm.to_prob()
 
     def loop_body(llhood, obs):
         llhood = llhood @ hmm.T * hmm.O[:, obs]
@@ -64,16 +69,23 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = Fals
     sequence up to that index. `loglikelihood_sequence[-1]` is the log likelihood of the entire sequence.
 
     """
+    if not jnp.issubdtype(obs.dtype, jnp.integer):
+        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 
-    log_T = jnp.log(hmm.T)
-    log_O = jnp.log(hmm.O)
+    if not hmm.is_log:
+        hmm = hmm.to_log()
+
+    log_T = hmm.T
+    log_O = hmm.O
+    log_mu = hmm.mu
+
 
     def loop_body(log_llhood, obs):
         log_llhood = logsumexp(
             log_llhood[:, None] + log_T, axis=0) + log_O[:, obs]
         return log_llhood, logsumexp(log_llhood)
 
-    initial_loglikelihoods = jnp.log(hmm.mu) + log_O[:, obs[0]]
+    initial_loglikelihoods = log_mu + log_O[:, obs[0]]
 
     state_loglikelihoods, loglikelihood_sequence = lax.scan(
         loop_body,

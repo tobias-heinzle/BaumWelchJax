@@ -58,6 +58,17 @@ def test_log_likelihood_sanity_check(initial_state, obs, likelihoods):
     assert jnp.allclose(jnp.exp(log_llhood_sequence), likelihoods)
     assert jnp.allclose(jnp.exp(log_llhood), likelihoods)
 
+def test_likelihoods_dtype_errors():
+    hmm_log = HMM_TEST.to_log()
+    hmm = hmm_log.to_prob()
+    obs = jnp.zeros(100).astype(jnp.float32)
+
+    with pytest.raises(ValueError):
+        likelihood(obs, hmm)
+
+    with pytest.raises(ValueError):
+        log_likelihood(obs, hmm_log)
+
 
 @pytest.mark.parametrize('eps, n', [(1e-6, 1000), (1e-6, 10_000), (1e-10, 1000), (1e-10, 10_000)])
 def test_log_likelihood_long_sequence(eps, n):

@@ -2,6 +2,8 @@ import jax.numpy as jnp
 
 from baum_welch_jax.models import HiddenMarkovModel
 
+HMM_TRIVIAL = HiddenMarkovModel(T=jnp.eye(5), O=jnp.eye(5), mu=jnp.ones(5) / 5, is_log=False)
+
 T_TEST = jnp.array([
 	[0.19243171477714208, 0.09946564190896066, 0.4439127902794604, 0.2641898530344369],
 	[0.2215117405382594, 0.14771091996193145, 0.36750680309584327, 0.26327053640396586],
