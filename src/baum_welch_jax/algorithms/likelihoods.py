@@ -30,7 +30,7 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
         hmm = hmm.to_prob()
 
     def loop_body(llhood, obs):
-        llhood = llhood @ hmm.T * hmm.O[:, obs]
+        llhood = (llhood @ hmm.T) * hmm.O[:, obs]
         return llhood, jnp.sum(llhood)
 
     initial_likelihoods = hmm.mu * hmm.O[:, obs[0]]

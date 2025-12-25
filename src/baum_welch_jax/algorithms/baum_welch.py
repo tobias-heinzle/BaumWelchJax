@@ -8,10 +8,12 @@ from jax import Array, vmap
 from ..util import wrapped_jit, normalize_rows
 from ..models import HiddenMarkovModel
 from .forward_backward import forward_backward
+from .likelihoods import log_likelihood
 
 class IterationState(NamedTuple):
     params: HiddenMarkovModel
-    residual: float
+    log_likelihoods: Array
+    residuals: Array
     iteration: int
     terminated: bool
     
@@ -119,11 +121,14 @@ def _baum_welch_log(
             if parallel_mode:
                 gamma, xi = vmap(
                     lambda _o: forward_backward(_o, inner_carry.params, mode='log'))(obs)
+                _log_llhood = vmap(lambda _o: log_likelihood(_o, inner_carry.params))(obs)
+                log_llhood = jnp.sum(_log_llhood)
 
                 gamma = jnp.concat(gamma, axis=0)
                 xi = jnp.concat(xi, axis=0)
             else:
                 gamma, xi = forward_backward(obs, inner_carry.params, mode='log')
+                log_llhood = log_likelihood(obs, inner_carry.params)
 
             # Maximizaton - step
             # Average over all time steps and normalize along rows => new estimate for T
@@ -144,20 +149,23 @@ def _baum_welch_log(
 
             updated_hmm = HiddenMarkovModel(T, O, mu, is_log=True)
 
+            residuals = inner_carry.residuals.at[inner_carry.iteration].set(residual)
+            log_llhoods = inner_carry.log_likelihoods.at[inner_carry.iteration].set(log_llhood)
+
             return lax.cond(
                 jnp.any(jnp.isnan(T)) | jnp.any(jnp.isnan(O)),
-                lambda: IterationState(updated_hmm, residual, inner_carry.iteration, True),#(*carry[:-1], True),
-                lambda: IterationState(updated_hmm, residual, inner_carry.iteration + 1, False)
+                lambda: IterationState(updated_hmm, log_llhoods, residuals, inner_carry.iteration, True),
+                lambda: IterationState(updated_hmm, log_llhoods, residuals, inner_carry.iteration + 1, False)
 
             )
 
-        hmm, residual, n, terminated = carry
+        hmm, log_likelihoods, residuals, n_step, terminated = carry
 
         carry = lax.cond(
-            terminated | (residual < epsilon),
+            terminated | jnp.any(residuals < epsilon),
             lambda x: x,
             perform_step,
-            IterationState(hmm, residual, n, terminated)
+            IterationState(hmm, log_likelihoods, residuals, n_step, terminated)
 
         )
 
@@ -165,7 +173,12 @@ def _baum_welch_log(
 
     final_state, _ = lax.scan(
         iteration,
-        init=IterationState(initial_params, epsilon + 1, 0, False),
+        init=IterationState(
+            params=initial_params, 
+            log_likelihoods=jnp.zeros(max_iter), 
+            residuals=jnp.ones(max_iter) * jnp.inf, 
+            iteration=0, 
+            terminated=False),
         length=max_iter
     )
     
