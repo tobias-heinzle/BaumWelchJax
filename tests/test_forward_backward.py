@@ -14,7 +14,7 @@ def test_fwd_bwd_dimensions(mode):
 
 	assert gamma.shape[0] == 100
 	assert xi.shape[0] == 99
-	
+
 
 def test_fwd_bwd_dtype_errors():
 	obs = jnp.zeros(100).astype(jnp.float32)
@@ -22,12 +22,8 @@ def test_fwd_bwd_dtype_errors():
 	with pytest.raises(ValueError):
 		forward_backward(obs, HMM_TRIVIAL)
 
-@pytest.mark.parametrize('hmm, mode', [
-	(HMM_TRIVIAL, 'regular'),
-	(HMM_TRIVIAL, 'log'),
-	(HMM_TRIVIAL.to_log(), 'regular'),
-	(HMM_TRIVIAL.to_log(), 'log')	
-	])
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('hmm', [HMM_TRIVIAL, HMM_TRIVIAL.to_log()])
 def test_fwd_bwd_trivial(hmm, mode):
 	obs = jnp.zeros(10).astype(jnp.int32)
 	state_distr = jnp.zeros((10,5))

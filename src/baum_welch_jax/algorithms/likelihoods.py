@@ -16,10 +16,12 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
     Returns:
         - Likelihood of the sequence.
 
-        If `return_stats = True` instead you get:
+        If `return_stats = True` instead you get
 
         - `state_likelihoods`, the likelihood of being in a given state at the end of a sequence
+
         - `likelihood_sequence`, where each entry corresponds to the likelihood of the observation
+        
     sequence up to that index. `likelihood_sequence[-1]` is the likelihood of the entire sequence.
 
     """
@@ -62,10 +64,12 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = Fals
     Returns:
         - Log likelihood of the sequence.
 
-        If `return_stats = True` instead you get:
+        If `return_stats = True` instead you get
 
         - `state_loglikelihoods`, the log likelihood of being in a given state at the end of a sequence
+
         - `loglikelihood_sequence`, where each entry corresponds to the log likelihood of the observation
+
     sequence up to that index. `loglikelihood_sequence[-1]` is the log likelihood of the entire sequence.
 
     """

@@ -61,6 +61,46 @@ def test_hmm_conversion():
     with pytest.raises(ValueError):
         hmm.to_prob()
 
+@pytest.mark.parametrize('dtype', [jnp.float32, jnp.float16])
+def test_hmm_astype(dtype):
+    hmm = HiddenMarkovModel(jnp.eye(2), jnp.eye(2), jnp.ones(2) / 2)
+    hmm_typed = hmm.astype(dtype)
+
+    assert hmm_typed.T.dtype == dtype
+    assert hmm_typed.O.dtype == dtype
+    assert hmm_typed.mu.dtype == dtype
+
+def test_hmm_invalid_type_assert():
+    _T = _O = jnp.eye(2)
+    _mu = jnp.zeros(2)
+    _mu = _mu.at[0].set(1.0)
+
+    with pytest.raises(ValueError):
+        assert_valid_hmm(
+            HiddenMarkovModel(_T.astype(jnp.int32), _O, _mu))
+        
+    with pytest.raises(ValueError):
+        assert_valid_hmm(
+            HiddenMarkovModel(_T, _O.astype(jnp.int32), _mu))
+        
+    with pytest.raises(ValueError):
+        assert_valid_hmm(
+            HiddenMarkovModel(_T, _O, _mu.astype(jnp.int32)))
+        
+def test_hmm_invalid_type_check():
+    _T = _O = jnp.eye(2)
+    _mu = jnp.zeros(2)
+    _mu = _mu.at[0].set(1.0)
+
+    assert not check_valid_hmm(
+            HiddenMarkovModel(_T.astype(jnp.int32), _O, _mu))
+        
+    assert not check_valid_hmm(
+            HiddenMarkovModel(_T, _O.astype(jnp.int32), _mu))
+        
+    assert not check_valid_hmm(
+            HiddenMarkovModel(_T, _O, _mu.astype(jnp.int32)))
+
 def test_hmm_conversion_jit():
     hmm = HiddenMarkovModel(
         T = jnp.eye(2),
