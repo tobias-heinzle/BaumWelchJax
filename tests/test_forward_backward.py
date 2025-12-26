@@ -178,3 +178,16 @@ def test_fwd_bwd_agreement_structured(obs):
 	
 	assert jnp.allclose(gamma, jnp.exp(gamma_log))
 	assert jnp.allclose(xi, jnp.exp(xi_log))
+
+
+def test_fwd_bwd_shapes():
+	obs = jnp.zeros(10).astype(jnp.int32)
+	n, m = HMM_TEST_STRUCTURED.O.shape
+
+	gamma, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
+	gamma_log, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
+	
+	assert gamma.shape == (10, n)
+	assert xi.shape == (9, n, n)
+	assert gamma_log.shape == (10, n)
+	assert xi_log.shape == (9, n, n)
