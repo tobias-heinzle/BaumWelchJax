@@ -34,5 +34,9 @@ notebook = [
 [project.urls]
 Repository = "https://github.com/tobias-heinzle/BaumWelchJax"
 
+[tool.pytest]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 [tool.hatch.build.targets.wheel]
 packages = ["src/baum_welch_jax"]

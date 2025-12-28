@@ -7,7 +7,8 @@ from jax.scipy.special import logsumexp
 import pytest
 
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovModel
+from baum_welch_jax.models import HiddenMarkovModel, assert_valid_hmm
+from baum_welch_jax.util import normalize_rows
 
 from conftest import *
 
@@ -48,6 +49,96 @@ def test_trivial_inference(mode):
     assert jnp.allclose(res_params.O, hmm.O, atol=0.001)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.00001)
 
+@pytest.mark.parametrize('epsilon', [1e-6, 1e-7, 1e-8, 1e-9, 1e-10])
+@pytest.mark.parametrize('mode', ['log', 'regular'])
+@enable_x64
+def test_precision(mode, epsilon):
+    T = jnp.array([[0.9, 0.1], [0.1,0.9]])
+    O = jnp.eye(2)
+    mu = jnp.array([0.0, 1.0])
+    hmm = HiddenMarkovModel(T, O, mu)
+
+    init_guess = HiddenMarkovModel(
+        jnp.ones((2,2)) / 2, 
+        jnp.ones((2,2)) / 2, 
+        jnp.array([0.2,0.8]))
+
+    _, obs = generate_sequence(key(0), hmm, 500)
+
+    result = baum_welch(obs, init_guess.astype(jnp.float64), max_iter=2000, epsilon=epsilon, mode=mode)
+
+    assert result.iterations > 5
+    assert result.iterations < 2000
+    assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= 0)
+
+@pytest.mark.slow
+@pytest.mark.parametrize('mode', ['log', 'regular'])
+@enable_x64
+def test_long_sequence(mode):
+    T = jnp.array([
+        [0.1, 0.0, 0.5, 0.4, 0.0],
+        [0.5, 0.1, 0.0, 0.2, 0.2],
+        [0.0, 0.9, 0.0, 0.0, 0.1],
+        [0.0, 0.0, 0.2, 0.0, 0.8],
+        [0.2, 0.2, 0.2, 0.2, 0.2]
+    ])
+    O = jnp.array([
+        [0.9, 0.1, 0.0, 0.0, 0.0],
+        [0.1, 0.7, 0.2, 0.0, 0.0],
+        [0.0, 0.0, 0.5, 0.5, 0.0],
+        [0.1, 0.0, 0.0, 0.9, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0]
+    ])
+    mu = jnp.array([0.0, 0.0, 0.0, 0.0, 1.0])
+    hmm = HiddenMarkovModel(T, O, mu)
+    assert_valid_hmm(hmm)
+
+    init_guess = HiddenMarkovModel(
+        normalize_rows(T + 0.25 * jax.random.uniform(key(0), shape=(5,5))), 
+        normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5))), 
+        normalize_rows(jnp.ones(5)))
+    assert_valid_hmm(init_guess)
+    
+    _, obs = generate_sequence(key(9999), hmm, 20_000)
+
+    result = baum_welch(obs, init_guess.astype(jnp.float64), max_iter=2000, epsilon=1e-8, mode=mode)
+    res_params = result.params.to_prob() if mode == 'log' else result.params
+
+    assert not result.terminated
+    assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= 0), f'{result.iterations} iterations performed until monotonicity violated'
+    assert jnp.allclose(res_params.T, hmm.T, atol=0.02)
+    assert jnp.allclose(res_params.O, hmm.O, atol=0.02)
+    assert jnp.allclose(res_params.mu, hmm.mu, atol=0.0001)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize('mode', ['log', 'regular'])
+@enable_x64
+def test_mutli_sequence(mode):
+    n_seq = 50
+
+    T = jnp.array([[0.9, 0.1], [0.1,0.9]])
+    O = jnp.eye(2)
+    mu = jnp.array([0.0, 1.0])
+    hmm = HiddenMarkovModel(T, O, mu)
+    init_guess = HiddenMarkovModel(
+        jnp.ones((2,2)) / 2, 
+        jnp.ones((2,2)) / 2, 
+        jnp.array([0.2,0.8]))
+
+    _, obs = jax.vmap(lambda _k: generate_sequence(key(_k), hmm, 500))(jnp.arange(n_seq))
+
+    result = baum_welch(obs, init_guess.astype(jnp.float64), max_iter=500, epsilon=1e-6, mode=mode)
+    res_params = result.params.to_prob() if mode == 'log' else result.params
+
+    assert not result.terminated
+    assert result.iterations > 5
+    assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= 0)
+    assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
+    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
+
+@pytest.mark.slow
 @pytest.mark.parametrize('mode', ['log', 'regular'])
 @enable_x64
 def test_observation_probabilities_structured(mode):
@@ -79,6 +170,7 @@ def test_observation_probabilities_structured(mode):
     assert jnp.allclose(OBS_DISTR_STRUCTURED_100_STEPS, obs_dist_over_time, atol=0.07), f'res_params.O = {res_params.O}'
     
 
+@pytest.mark.slow
 @pytest.mark.parametrize('m', [2, 3, 5])
 @pytest.mark.parametrize('n', [3, 4, 6])
 @pytest.mark.parametrize('seed', [0, 174803])

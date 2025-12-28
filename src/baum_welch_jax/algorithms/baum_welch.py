@@ -12,6 +12,10 @@ from ..models import HiddenMarkovModel
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
 
+
+# TODO: How to deal with sequences that have different initial states mu
+#       How to handle ragged seqeunces of different length?
+
 class IterationState(NamedTuple):
     params: HiddenMarkovModel
     log_likelihoods: Array
@@ -55,7 +59,7 @@ def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> Hidde
         jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
     O -= logsumexp(gamma, axis=0)[..., None]
 
-    mu = gamma[0] - logsumexp(gamma[0])
+    mu = gamma[0] # - logsumexp(gamma[0])
 
     return HiddenMarkovModel(T, O, mu, is_log=True)
 
