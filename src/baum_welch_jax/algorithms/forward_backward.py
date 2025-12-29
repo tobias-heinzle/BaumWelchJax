@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -7,44 +9,56 @@ from jax import Array
 from ..util import wrapped_jit, normalize_rows
 from ..models import HiddenMarkovModel
 
+class ForwardBackwardResult(NamedTuple):
+    '''
+    Structured tuple for the results. Contains the fields:
+
+    `gamma`: entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
+    
+    `xi`: entries`xi[i,j,k]` denote the probabilities of transitioning from state `j` to state `k` at time `i`
+    '''
+    
+    gamma: Array
+    xi: Array
+
 @wrapped_jit(static_argnames=['mode'])
-def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> tuple[Array, Array]:
-    """
+def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> ForwardBackwardResult:
+    '''
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. All in one single pass over the observations.
     The mode parameter can either be 'log' or 'regular' and controls wether computations are carried out
     using the log probabilities or the regular probabilities. Log mode is standard, regular mode will often
     result in numerical underflow and is just present for sanity checking the implementation.
+    
+    :param obs: Sequence of observations
+    :type obs: Array
+    :param hmm: Hidden Markov model parameters
+    :type hmm: HiddenMarkovModel
+    :param mode: Flag to indicate calculations performed in `log` or `regular` space
+    :type mode: str
+    :return: Resulting conditional distributions `gamma` and `xi`
+    :rtype: ForwardBackwardResult
+    '''
 
-    Returns:
-    - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
-    - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
-    """
     if not jnp.issubdtype(obs.dtype, jnp.integer):
         raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 
     if mode == 'log':
         if not hmm.is_log:
             hmm = hmm.to_log()
-        return _forward_backward_log(obs, hmm)
+        gamma, xi = _forward_backward_log(obs, hmm)
         
     elif mode == 'regular':
         if hmm.is_log:
             hmm = hmm.to_prob()
-        return _forward_backward(obs, hmm)
+        gamma, xi = _forward_backward(obs, hmm)
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
+    
+    return ForwardBackwardResult(gamma=gamma, xi=xi)
 
 @wrapped_jit()
 def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]:
-    """
-    Computes the forward and backward probability distributions of being in a given state,
-    conditioned on all observations prior and after. All in one single pass over the observations.
-
-    Returns:
-    - `gamma`, the matrix whose entries `gamma[i,j]` denote the probabilities of being in state `j` for each time `i`
-    - `xi`, the tensor whose entries`xi[i,j,k]` denote the probabilities of in state `j` and transitioning to state `k` at time `i`
-    """
 
     if hmm.is_log:
         raise ValueError('HiddenMarkovModel (hmm) must be passed in regular probability mode')
@@ -101,14 +115,6 @@ def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]
 
 @wrapped_jit()
 def _forward_backward_log(obs: Array, hmm_log: HiddenMarkovModel) -> tuple[Array, Array]:
-    """
-    Computes the forward and backward probability log probabilities of being in a given state,
-    conditioned on all observations prior and after. All in a single loop over the observations. 
-
-    Returns:
-    - `gamma`, the matrix whose entries `gamma[i,j]` denote the log probabilities of being in state `j` for each time `i`
-    - `xi`, the tensor whose entries`xi[i,j,k]` denote the log probabilities of in state `j` and transitioning to state `k` at time `i`
-    """
 
     if not hmm_log.is_log:
         raise ValueError('HiddenMarkovModel (hmm_log) must be passed in log mode!')

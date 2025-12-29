@@ -13,7 +13,20 @@ from ..models import HiddenMarkovModel
 def generate_sequence(
         key: Array,
         hmm: HiddenMarkovModel, 
-        length: int) -> Array:
+        length: int) -> tuple[Array, Array]:
+    '''
+    Iterative function to generate a sequence of states and observations given
+    HMM parameters
+    
+    :param key: RNG key for sequence generation
+    :type key: Array
+    :param hmm: Hidden Markov model parameters
+    :type hmm: HiddenMarkovModel
+    :param length: Length of the output sequence
+    :type length: int
+    :return: Two arrays containing `states` and `observations`
+    :rtype: tuple[Array, Array]
+    '''
 
     if hmm.is_log:
         hmm = hmm.to_prob()

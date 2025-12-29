@@ -10,21 +10,29 @@ from ..models import HiddenMarkovModel
 
 @wrapped_jit(static_argnames=["return_stats"])
 def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -> Array | tuple[Array, Array]:
-    """
-    Compute the likelihood of observing the sequence `obs` given the parameters of `hmm`
+    '''
+    Compute the likelihood of observing the sequence `obs` given the parameters of `hmm`. This function can return
+    two different types:
 
-    Returns:
-        - Likelihood of the sequence.
+    If `return_stats = False`
+    - Likelihood of the sequence 
 
-        If `return_stats = True` instead you get
-
-        - `state_likelihoods`, the likelihood of being in a given state at the end of a sequence
-
-        - `likelihood_sequence`, where each entry corresponds to the likelihood of the observation
-        
-    sequence up to that index. `likelihood_sequence[-1]` is the likelihood of the entire sequence.
-
-    """
+    If `return_stats = True`
+    - `state_likelihoods` (likelihood of being in a given state at the end of a sequence)
+    - `likelihood_sequence` (likelihood of the observation sequence up to that index)
+    
+    In the second case, `likelihood_sequence[-1]` is the likelihood of the entire sequence.
+    
+    :param obs: Observation sequence
+    :type obs: Array
+    :param hmm: Hidden Markov model parameters
+    :type hmm: HiddenMarkovModel
+    :param return_stats: Flag to indicate if additional statistics should be returned
+    :type return_stats: bool
+    :return: Likelihood value or state likelihoods and likelihood sequence
+    :rtype: Array | tuple[Array, Array]
+    '''
+    
     if not jnp.issubdtype(obs.dtype, jnp.integer):
         raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 
@@ -58,21 +66,28 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
 
 @wrapped_jit(static_argnames=["return_stats"])
 def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -> Array | tuple[Array, Array]:
-    """
-    Compute the likelihood of observing the sequence `obs` given the parameters of `hmm`
+    '''
+    Compute the log likelihood of observing the sequence `obs` given the parameters of `hmm`. This function can return
+    two different types:
 
-    Returns:
-        - Log likelihood of the sequence.
+    If `return_stats = False`
+    - Log likelihood of the sequence 
 
-        If `return_stats = True` instead you get
-
-        - `state_loglikelihoods`, the log likelihood of being in a given state at the end of a sequence
-
-        - `loglikelihood_sequence`, where each entry corresponds to the log likelihood of the observation
-
-    sequence up to that index. `loglikelihood_sequence[-1]` is the log likelihood of the entire sequence.
-
-    """
+    If `return_stats = True`
+    - `state_loglikelihoods` (loglikelihood of being in a given state at the end of a sequence)
+    - `loglikelihood_sequence` (loglikelihood of the observation sequence up to that index)
+    
+    In the second case, `loglikelihood_sequence[-1]` is the loglikelihood of the entire sequence.
+    
+    :param obs: Observation sequence
+    :type obs: Array
+    :param hmm: Hidden Markov model parameters
+    :type hmm: HiddenMarkovModel
+    :param return_stats: Flag to indicate if additional statistics should be returned
+    :type return_stats: bool
+    :return: Log likelihood value or state log likelihoods and log likelihood sequence
+    :rtype: Array | tuple[Array, Array]
+    '''
     if not jnp.issubdtype(obs.dtype, jnp.integer):
         raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 

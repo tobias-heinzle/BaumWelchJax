@@ -17,6 +17,9 @@ from .likelihoods import log_likelihood
 #       How to handle ragged seqeunces of different length?
 
 class IterationState(NamedTuple):
+    '''
+    Structured tuple for the (intermediate) results of expectation maximization
+    '''
     params: HiddenMarkovModel
     log_likelihoods: Array
     residuals: Array
@@ -59,7 +62,7 @@ def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> Hidde
         jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
     O -= logsumexp(gamma, axis=0)[..., None]
 
-    mu = gamma[0] # - logsumexp(gamma[0])
+    mu = gamma[0]
 
     return HiddenMarkovModel(T, O, mu, is_log=True)
 
@@ -82,9 +85,26 @@ def _compute_residual(updated: HiddenMarkovModel, old: HiddenMarkovModel, mode: 
 @wrapped_jit(static_argnames=["max_iter", "epsilon", "mode"])
 def baum_welch(obs: Array,
         initial_params: HiddenMarkovModel,
-        max_iter=100,
-        epsilon=1e-4,
-        mode='log') -> IterationState:
+        max_iter: int = 100,
+        epsilon: float = 1e-6,
+        mode: str = 'log') -> IterationState:
+    '''
+    Implementation of expectation maximization for hidden Markov models.
+    `baum_welch` can only be used with x64 precision. 
+    
+    :param obs: Sequence of observations
+    :type obs: Array
+    :param initial_params: Initial guesses for the parameters
+    :type initial_params: HiddenMarkovModel
+    :param max_iter: Maximum number of iterations
+    :type max_iter: int
+    :param epsilon: Convergence threshold
+    :type epsilon: float
+    :param mode: Flag to indicate if log probabilities should be used. Can be either `log` or `regular`
+    :type mode: str
+    :return: Returns the parameter estimate as well as the likelihood and residual sequences.
+    :rtype: IterationState
+    '''
     
     _require_x64()
     

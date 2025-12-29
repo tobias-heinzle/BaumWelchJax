@@ -109,7 +109,7 @@ def check_valid_hmm(hmm: HiddenMarkovModel) -> bool:
 def assert_valid_hmm(hmm: HiddenMarkovModel):
     '''
     Runs assertions for critical properties of a HiddenMarkovModel.
-    Throws a ValueError if anything is incorrect.
+    Throws a `ValueError` if anything is incorrect.
     '''
 
     # Shape checks for O, T, mu
