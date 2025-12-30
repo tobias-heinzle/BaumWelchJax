@@ -52,19 +52,19 @@ def forward_backward(obs: Array, hmm: HiddenMarkovParameters, mode: str = 'log')
     if mode == 'log':
         if not hmm.is_log:
             hmm = hmm.to_log()
-        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward_log(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
+        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward_log_impl(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
         
     elif mode == 'regular':
         if hmm.is_log:
             hmm = hmm.to_prob()
-        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
+        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward_impl(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
     
     return ForwardBackwardResult(gamma=gamma.squeeze(), xi=xi.squeeze())
 
 @wrapped_jit()
-def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _forward_backward_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
 
     n = mu.shape[0]
     t_max = len(obs)
@@ -117,7 +117,7 @@ def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array,
     return gamma, xi
 
 @wrapped_jit()
-def _forward_backward_log(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
+def _forward_backward_log_impl(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
 
     n = log_mu.shape[0]
     t_max = len(obs)

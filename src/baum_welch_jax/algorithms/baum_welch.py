@@ -130,7 +130,7 @@ def baum_welch(obs: Array,
                 f'({len(initial_params.mu)} !=  {len(obs)})'
                 )
 
-    m = initial_params.O.shape[-1]
+    m_obs = initial_params.O.shape[-1]
 
     def iteration(
             carry: IterationState,
@@ -175,11 +175,11 @@ def baum_welch(obs: Array,
             # Maximizaton - step
             # Transition and observation probabilities
             if mode == 'log':
-                T, O = _maximization_step_log(obs, gamma, xi, m)
+                T, O = _maximization_step_log(obs, gamma, xi, m_obs)
                 updated = HiddenMarkovParameters(T, O, mu, is_log=True)
 
             else:
-                T, O = _maximization_step(obs, gamma, xi, m)
+                T, O = _maximization_step(obs, gamma, xi, m_obs)
                 updated = HiddenMarkovParameters(T, O, mu, is_log=False)
 
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    

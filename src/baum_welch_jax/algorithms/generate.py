@@ -31,15 +31,26 @@ def generate_sequence(
     if hmm.is_log:
         hmm = hmm.to_prob()
 
-    n, _ = hmm.O.shape
+    if len(hmm.mu.shape) > 1:
+        keys = jnp.array(jax.random.split(key, hmm.mu.shape[0]))
+        states, observations = jax.vmap(
+            lambda _k, _mu: _generate_sequence_impl(_k, hmm.T, hmm.O, _mu, length))(keys, hmm.mu)
+    else:
+        states, observations = _generate_sequence_impl(key, hmm.T, hmm.O, hmm.mu, length)
+
+    return states.squeeze(), observations.squeeze()
+
+@wrapped_jit(static_argnames="length")
+def _generate_sequence_impl(key: Array, T: Array, O: Array, mu: Array, length: int):
+    n, _ = O.shape
 
     initial_key, sampling_key = jax.random.split(key)
-    initial_state = jax.random.choice(initial_key, n, p=hmm.mu)
+    initial_state = jax.random.choice(initial_key, n, p=mu)
 
     p_samples = jax.random.uniform(sampling_key, (length, 2))
 
-    obs_cdf = jnp.cumsum(hmm.O, axis=-1)
-    trans_cdf = jnp.cumsum(hmm.T, axis=-1)
+    obs_cdf = jnp.cumsum(O, axis=-1)
+    trans_cdf = jnp.cumsum(T, axis=-1)
 
     def step(state, p_samples):
         p_obs, p_state = p_samples
