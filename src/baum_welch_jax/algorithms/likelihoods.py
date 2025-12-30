@@ -50,7 +50,7 @@ def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = Fal
     if return_stats:
         return state_llhoods.squeeze(), llhood_seq.squeeze()
     else:
-        return llhood_seq.squeeze()[-1]
+        return llhood_seq[:, -1].squeeze()
 
 @wrapped_jit()
 def _likelihood_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
@@ -120,7 +120,7 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool =
     if return_stats:
         return state_logllhoods.squeeze(), logllhood_seq.squeeze()
     else:
-        return logllhood_seq.squeeze()[-1]
+        return logllhood_seq[:, -1].squeeze()
 
 @wrapped_jit()
 def _log_likelihood_impl(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:

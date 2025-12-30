@@ -131,6 +131,22 @@ def test_log_likelihood_sampled_long(obs, llhood):
 def test_likelihood_multiple_obs_single_mu():
     obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS)
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS)
+
+    llhoods = likelihood(obs_arr, HMM_TEST)
+
+    assert jnp.allclose(llhoods, test_llhoods, rtol=0.03)
+
+def test_log_likelihood_multiple_obs_single_mu():
+    obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS)
+    test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS)
+
+    llhoods = log_likelihood(obs_arr, HMM_TEST.to_log())
+
+    assert jnp.allclose(jnp.exp(llhoods), test_llhoods, rtol=0.03)
+
+def test_likelihood_stats_multiple_obs_single_mu():
+    obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS)
+    test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS)
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS)
 
     state_llhoods, llhood_seq = likelihood(obs_arr, HMM_TEST, return_stats=True)
@@ -139,7 +155,7 @@ def test_likelihood_multiple_obs_single_mu():
     assert jnp.allclose(llhood_seq[:, -1], test_llhoods, rtol=0.03)
     assert jnp.allclose(state_distributions, final_state_distr, rtol=0.07)
 
-def test_log_likelihood_multiple_obs_single_mu():
+def test_log_likelihood_stats_multiple_obs_single_mu():
     obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS)
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS)
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS)
@@ -150,18 +166,41 @@ def test_log_likelihood_multiple_obs_single_mu():
     assert jnp.allclose(jnp.exp(llhood_seq[:, -1]), test_llhoods, rtol=0.03)
     assert jnp.allclose(state_distributions, final_state_distr, rtol=0.07)
 
-
-
 def test_likelihood_multiple_obs_multiple_mu():
+    # This test checks if the correct likelihoods are computed if different 
+    # initial state distributions are used for each sequence!
+    obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS + TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
+    test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
+    k = len(TEST_SEQUENCES_5_STEPS)
+    l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
+    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+
+    llhoods = likelihood(obs_arr, hmm)
+
+    assert jnp.allclose(llhoods, test_llhoods, rtol=0.03)
+
+def test_log_likelihood_multiple_obs_multiple_mu():
+    # This test checks if the correct log likelihoods are if different 
+    # initial state distributions are used for each sequence!
+    obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS + TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
+    test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
+    k = len(TEST_SEQUENCES_5_STEPS)
+    l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
+    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+
+    llhoods = log_likelihood(obs_arr, hmm.to_log())
+
+    assert jnp.allclose(jnp.exp(llhoods), test_llhoods, rtol=0.03)
+
+
+def test_likelihood_stats_multiple_obs_multiple_mu():
     # This test checks if the correct likelihood and final state distributions are
     # computed if different initial state distributions are used for each sequence!
     obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS + TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS + FINAL_STATE_DISTR_5_STEPS_DIFFERENT_MU)
-
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-
     hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     state_llhoods, llhood_seq = likelihood(obs_arr, hmm, return_stats=True)
@@ -170,16 +209,14 @@ def test_likelihood_multiple_obs_multiple_mu():
     assert jnp.allclose(llhood_seq[:, -1], test_llhoods, rtol=0.03)
     assert jnp.allclose(state_distributions, final_state_distr, rtol=0.09)
 
-def test_log_likelihood_multiple_obs_multiple_mu():
+def test_log_likelihood_stats_multiple_obs_multiple_mu():
     # This test checks if the correct log likelihood and final state distributions are
     # computed if different initial state distributions are used for each sequence!
     obs_arr = jnp.array(TEST_SEQUENCES_5_STEPS + TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS + FINAL_STATE_DISTR_5_STEPS_DIFFERENT_MU)
-
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-
     hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     state_llhoods, llhood_seq = log_likelihood(obs_arr, hmm.to_log(), return_stats=True)
@@ -187,7 +224,6 @@ def test_log_likelihood_multiple_obs_multiple_mu():
 
     assert jnp.allclose(jnp.exp(llhood_seq[:, -1]), test_llhoods, rtol=0.03)
     assert jnp.allclose(state_distributions, final_state_distr, rtol=0.09)
-
 
 # Test with structured parameters
 @pytest.mark.parametrize('obs, llhood, final_state_distr', 
