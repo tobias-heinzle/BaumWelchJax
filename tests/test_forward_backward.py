@@ -107,15 +107,25 @@ def test_fwd_bwd_structured_gamma_log_6_steps(obs, sampled_distr):
 
 
 # Test xi computation on random parameter set
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, TRANSITION_TENSORS_TEST_5_STEPS))
+def test_fwd_bwd_xi_5_steps(obs, sampled_distr):
+	_, xi = forward_backward(obs, HMM_TEST, mode='regular')
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.015)
+	
+
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, TRANSITION_TENSORS_TEST_5_STEPS))
+def test_fwd_bwd_xi_log_5_steps(obs, sampled_distr):
+	_, xi_log = forward_backward(obs, HMM_TEST, mode='log')
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.015)
+
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
 def test_fwd_bwd_xi_6_steps(obs, sampled_distr):
 	_, xi = forward_backward(obs, HMM_TEST, mode='regular')
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.026)
 	
 
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
@@ -123,37 +133,38 @@ def test_fwd_bwd_xi_log_6_steps(obs, sampled_distr):
 	_, xi_log = forward_backward(obs, HMM_TEST, mode='log')
 	xi = jnp.exp(xi_log)
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
-	
+	assert jnp.allclose(xi, sampled_distr, atol=0.026)
 
 # Test xi computation with structured parameter set (Band structure of T, zero elements also in O)
+@pytest.mark.parametrize(
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_5_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_5_STEPS))
+def test_fwd_bwd_structured_xi_5_steps(obs, sampled_distr):
+	_, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.013)
+	
+@pytest.mark.parametrize(
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_5_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_5_STEPS))
+def test_fwd_bwd_structured_xi_log_5_steps(obs, sampled_distr):
+	_, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.013)
+
 @pytest.mark.parametrize(
 		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
 def test_fwd_bwd_structured_xi_6_steps(obs, sampled_distr):
 	_, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.018)
 	
-
 @pytest.mark.parametrize(
 		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
 def test_fwd_bwd_structured_xi_log_6_steps(obs, sampled_distr):
 	_, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
 	xi = jnp.exp(xi_log)
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.018)
 	
 
 # Test if both versions of the algorithm arrive at the same result for relatively short sequences
@@ -202,11 +213,7 @@ def test_fwd_bwd_parallel_6_steps():
 	assert gamma.shape[0] == len(test_state_distr)
 	assert xi.shape[0] == len(test_transitions)
 	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
-	assert jnp.allclose(xi[:, 0], test_transitions[:, 0], atol=0.015)
-	assert jnp.allclose(xi[:, 1], test_transitions[:, 1], atol=0.02)
-	assert jnp.allclose(xi[:, 2], test_transitions[:, 2], atol=0.03)
-	assert jnp.allclose(xi[:, 3], test_transitions[:, 3], atol=0.05)
-	assert jnp.allclose(xi[:, 4], test_transitions[:, 4], atol=0.11)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
 
 def test_fwd_bwd_parallel_log_6_steps():
 	test_state_distr = jnp.array(STATE_DISTR_6_STEPS)
@@ -217,11 +224,7 @@ def test_fwd_bwd_parallel_log_6_steps():
 	xi = jnp.exp(xi_log)
 	
 	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
-	assert jnp.allclose(xi[:, 0], test_transitions[:, 0], atol=0.015)
-	assert jnp.allclose(xi[:, 1], test_transitions[:, 1], atol=0.02)
-	assert jnp.allclose(xi[:, 2], test_transitions[:, 2], atol=0.03)
-	assert jnp.allclose(xi[:, 3], test_transitions[:, 3], atol=0.05)
-	assert jnp.allclose(xi[:, 4], test_transitions[:, 4], atol=0.11)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
 
 
 # Test parallel mode with multiple initial state probability vectors
@@ -237,11 +240,7 @@ def test_fwd_bwd_multiple_mu_6_steps():
 	assert gamma.shape[0] == len(test_state_distr)
 	assert xi.shape[0] == len(test_transitions)
 	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
-	assert jnp.allclose(xi[:, 0], test_transitions[:, 0], atol=0.02)
-	assert jnp.allclose(xi[:, 1], test_transitions[:, 1], atol=0.03)
-	assert jnp.allclose(xi[:, 2], test_transitions[:, 2], atol=0.04)
-	assert jnp.allclose(xi[:, 3], test_transitions[:, 3], atol=0.05)
-	assert jnp.allclose(xi[:, 4], test_transitions[:, 4], atol=0.11)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
 
 def test_fwd_bwd_multiple_mu_log_6_steps():
 	test_state_distr = jnp.array(STATE_DISTR_6_STEPS + STATE_DISTR_6_STEPS_DIFFERENT_MU)
@@ -255,8 +254,4 @@ def test_fwd_bwd_multiple_mu_log_6_steps():
 	xi = jnp.exp(xi_log)
 	
 	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
-	assert jnp.allclose(xi[:, 0], test_transitions[:, 0], atol=0.02)
-	assert jnp.allclose(xi[:, 1], test_transitions[:, 1], atol=0.03)
-	assert jnp.allclose(xi[:, 2], test_transitions[:, 2], atol=0.04)
-	assert jnp.allclose(xi[:, 3], test_transitions[:, 3], atol=0.05)
-	assert jnp.allclose(xi[:, 4], test_transitions[:, 4], atol=0.11)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
