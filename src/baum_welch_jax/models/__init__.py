@@ -1,1 +1,1 @@
-from .hmm import HiddenMarkovModel, check_valid_hmm, assert_valid_hmm
+from .hmm import HiddenMarkovParameters, check_valid_hmm, assert_valid_hmm

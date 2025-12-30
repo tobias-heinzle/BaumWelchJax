@@ -1,13 +1,13 @@
 import functools
 
+import jax
 from jax.random import key, split
 import jax.numpy as jnp
-from jax.scipy.special import logsumexp
 
 import pytest
 
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovModel, assert_valid_hmm
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -30,9 +30,9 @@ def test_trivial_inference(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovModel(T, O, mu)
+    hmm = HiddenMarkovParameters(T, O, mu)
 
-    init_guess = HiddenMarkovModel(
+    init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
         jnp.ones((2,2)) / 2, 
         jnp.array([0.2,0.8]))
@@ -56,9 +56,9 @@ def test_precision(mode, epsilon):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovModel(T, O, mu)
+    hmm = HiddenMarkovParameters(T, O, mu)
 
-    init_guess = HiddenMarkovModel(
+    init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
         jnp.ones((2,2)) / 2, 
         jnp.array([0.2,0.8]))
@@ -90,10 +90,10 @@ def test_long_sequence(mode):
         [0.0, 0.0, 0.0, 0.0, 1.0]
     ])
     mu = jnp.array([0.0, 0.0, 0.0, 0.0, 1.0])
-    hmm = HiddenMarkovModel(T, O, mu)
+    hmm = HiddenMarkovParameters(T, O, mu)
     assert_valid_hmm(hmm)
 
-    init_guess = HiddenMarkovModel(
+    init_guess = HiddenMarkovParameters(
         normalize_rows(T + 0.25 * jax.random.uniform(key(0), shape=(5,5))), 
         normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5))), 
         normalize_rows(jnp.ones(5)))
@@ -120,11 +120,12 @@ def test_mutli_sequence(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovModel(T, O, mu)
-    init_guess = HiddenMarkovModel(
+    hmm = HiddenMarkovParameters(T, O, mu)
+    init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
         jnp.ones((2,2)) / 2, 
-        jnp.array([0.2,0.8]))
+        jnp.array([0.2,0.8])
+        )
 
     _, obs = jax.vmap(lambda _k: generate_sequence(key(_k), hmm, 500))(jnp.arange(n_seq))
 
@@ -150,7 +151,7 @@ def test_observation_probabilities_structured(mode):
     
     O_guess = (jnp.ones((n,m)) / m).at[-1].set(jnp.zeros(m).at[-1].set(1.0))
     mu_guess = jnp.zeros(n).at[0].set(1.0)
-    init_guess = HiddenMarkovModel(
+    init_guess = HiddenMarkovParameters(
         jnp.ones((n,n)) / n, 
         O_guess, 
         mu_guess)
@@ -190,9 +191,9 @@ def test_observation_probabilities_random(mode, seed, m, n):
     O = O / jnp.sum(O, axis=1)[..., None]
     mu = mu / jnp.sum(mu)
 
-    hmm = HiddenMarkovModel(T, O, mu)
+    hmm = HiddenMarkovParameters(T, O, mu)
 
-    init_guess = HiddenMarkovModel(
+    init_guess = HiddenMarkovParameters(
         jnp.ones_like(T) / n, 
         jnp.ones_like(O) / m, 
         jnp.ones_like(mu) / n)

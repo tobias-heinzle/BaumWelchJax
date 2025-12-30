@@ -6,17 +6,17 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..util import wrapped_jit
-from ..models import HiddenMarkovModel
+from ..models import HiddenMarkovParameters
 
 
 @wrapped_jit(static_argnames="length")
 def generate_sequence(
         key: Array,
-        hmm: HiddenMarkovModel, 
+        hmm: HiddenMarkovParameters, 
         length: int) -> tuple[Array, Array]:
     '''
-    Iterative function to generate a sequence of states and observations given
-    HMM parameters
+    Generate a sequence of states and observations with a given length for each initial state distribution
+    in the HiddenMarkovParameters
     
     :param key: RNG key for sequence generation
     :type key: Array

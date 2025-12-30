@@ -1,13 +1,14 @@
 from typing import NamedTuple
 
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from jax import Array
 
-from ..util import wrapped_jit, normalize_rows
-from ..models import HiddenMarkovModel
+from ..util import wrapped_jit, normalize_rows, standardize_shapes
+from ..models import HiddenMarkovParameters
 
 class ForwardBackwardResult(NamedTuple):
     '''
@@ -22,7 +23,7 @@ class ForwardBackwardResult(NamedTuple):
     xi: Array
 
 @wrapped_jit(static_argnames=['mode'])
-def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> ForwardBackwardResult:
+def forward_backward(obs: Array, hmm: HiddenMarkovParameters, mode: str = 'log') -> ForwardBackwardResult:
     '''
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. All in one single pass over the observations.
@@ -30,9 +31,9 @@ def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> F
     using the log probabilities or the regular probabilities. Log mode is standard, regular mode will often
     result in numerical underflow and is just present for sanity checking the implementation.
     
-    :param obs: Sequence of observations
+    :param obs: Sequence of observations either shape `(n,)` for a single sequence or `(k, n)` for `k` sequences
     :type obs: Array
-    :param hmm: Hidden Markov model parameters
+    :param hmm: Hidden Markov model parameters. If multiple `mu` are provided, their number must match the number of sequences.
     :type hmm: HiddenMarkovModel
     :param mode: Flag to indicate calculations performed in `log` or `regular` space
     :type mode: str
@@ -43,32 +44,34 @@ def forward_backward(obs: Array, hmm: HiddenMarkovModel, mode: str = 'log') -> F
     if not jnp.issubdtype(obs.dtype, jnp.integer):
         raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
 
+    obs, mu = standardize_shapes(obs, hmm)
+
+    hmm = HiddenMarkovParameters(hmm.T, hmm.O, mu, hmm.is_log)
+
+    # Ensure that the HMM parametes are passed in the correct form
     if mode == 'log':
         if not hmm.is_log:
             hmm = hmm.to_log()
-        gamma, xi = _forward_backward_log(obs, hmm)
+        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward_log(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
         
     elif mode == 'regular':
         if hmm.is_log:
             hmm = hmm.to_prob()
-        gamma, xi = _forward_backward(obs, hmm)
+        gamma, xi = jax.vmap(lambda _o, _mu: _forward_backward(_o, hmm.T, hmm.O, _mu))(obs, hmm.mu)
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
     
-    return ForwardBackwardResult(gamma=gamma, xi=xi)
+    return ForwardBackwardResult(gamma=gamma.squeeze(), xi=xi.squeeze())
 
 @wrapped_jit()
-def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]:
+def _forward_backward(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
 
-    if hmm.is_log:
-        raise ValueError('HiddenMarkovModel (hmm) must be passed in regular probability mode')
-
-    n = hmm.mu.shape[0]
+    n = mu.shape[0]
     t_max = len(obs)
 
     # Initialize forward probabilities
-    alpha_0 = hmm.mu * hmm.O[:, obs[0]]
-    alpha_0 = normalize_rows(alpha_0)  # alpha_0 / jnp.sum(alpha_0)
+    alpha_0 = mu * O[:, obs[0]]
+    alpha_0 = normalize_rows(alpha_0) 
 
     # Initialize backward probabilities
     beta_t_max = jnp.ones(n) / n
@@ -76,11 +79,11 @@ def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]
     def step(carry, t):
         alpha, beta = carry
 
-        alpha = (alpha @ hmm.T) * hmm.O[:, obs[t]]
-        beta = hmm.T @ (hmm.O[:, obs[t_max - t]] * beta)
+        alpha = (alpha @ T) * O[:, obs[t]]
+        beta = T @ (O[:, obs[t_max - t]] * beta)
 
-        alpha = normalize_rows(alpha)  # alpha / jnp.sum(alpha)
-        beta = normalize_rows(beta)  # beta / jnp.sum(beta)
+        alpha = normalize_rows(alpha) 
+        beta = normalize_rows(beta)
 
         return (alpha, beta), (alpha, beta)
 
@@ -103,28 +106,21 @@ def _forward_backward(obs: Array, hmm: HiddenMarkovModel) -> tuple[Array, Array]
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
-    obs_probs = jnp.take(hmm.O, obs[1:], axis=1).T
+    obs_probs = jnp.take(O, obs[1:], axis=1).T
     xi = jnp.einsum("ij, ik->ijk", alpha[:-1], beta[1:] * obs_probs)
 
     # and then multiplying each slice componentwise with
-    xi = xi * hmm.T[None, ...]
+    xi = xi * T[None, ...]
 
     xi = xi / jnp.sum(xi, axis=(1, 2))[:, None, None]
 
     return gamma, xi
 
 @wrapped_jit()
-def _forward_backward_log(obs: Array, hmm_log: HiddenMarkovModel) -> tuple[Array, Array]:
+def _forward_backward_log(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
 
-    if not hmm_log.is_log:
-        raise ValueError('HiddenMarkovModel (hmm_log) must be passed in log mode!')
-
-    n = hmm_log.mu.shape[0]
+    n = log_mu.shape[0]
     t_max = len(obs)
-
-    log_T = hmm_log.T
-    log_O = hmm_log.O
-    log_mu = hmm_log.mu
 
     # Initialize forward probabilities
     alpha_0 = log_mu + log_O[:, obs[0]]

@@ -8,7 +8,7 @@ from jax.scipy.special import logsumexp
 from jax import Array, vmap
 
 from ..util import wrapped_jit, normalize_rows
-from ..models import HiddenMarkovModel
+from ..models import HiddenMarkovParameters
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
 
@@ -20,7 +20,7 @@ class IterationState(NamedTuple):
     '''
     Structured tuple for the (intermediate) results of expectation maximization
     '''
-    params: HiddenMarkovModel
+    params: HiddenMarkovParameters
     log_likelihoods: Array
     residuals: Array
     iterations: int
@@ -35,7 +35,7 @@ def _require_x64():
             "  jax.config.update('jax_enable_x64', True)\n"
         )    
 
-def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> HiddenMarkovModel:
+def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
 
     # Average over all time steps and normalize along rows => new estimate for T
 
@@ -46,12 +46,10 @@ def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> HiddenMar
         (obs.ravel() == o)[:, None] * gamma, axis=0), jnp.arange(m)).T
     O = O / jnp.sum(gamma, axis=0)[..., None]
 
-    mu = gamma[0]
-
-    return HiddenMarkovModel(T, O, mu)
+    return T, O
 
 
-def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> HiddenMarkovModel:
+def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
     
     # Average over all time steps and normalize along rows => new estimate for T
 
@@ -62,12 +60,10 @@ def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> Hidde
         jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
     O -= logsumexp(gamma, axis=0)[..., None]
 
-    mu = gamma[0]
-
-    return HiddenMarkovModel(T, O, mu, is_log=True)
+    return T, O
 
 
-def _compute_residual(updated: HiddenMarkovModel, old: HiddenMarkovModel, mode: str = 'log') -> float:
+def _compute_residual(updated: HiddenMarkovParameters, old: HiddenMarkovParameters, mode: str = 'log') -> float:
     if mode == 'log':
         residual_T = jnp.max(jnp.abs(jnp.exp(updated.T) - jnp.exp(old.T)))
         residual_O = jnp.max(jnp.abs(jnp.exp(updated.O) - jnp.exp(old.O)))
@@ -84,7 +80,7 @@ def _compute_residual(updated: HiddenMarkovModel, old: HiddenMarkovModel, mode: 
 
 @wrapped_jit(static_argnames=["max_iter", "epsilon", "mode"])
 def baum_welch(obs: Array,
-        initial_params: HiddenMarkovModel,
+        initial_params: HiddenMarkovParameters,
         max_iter: int = 100,
         epsilon: float = 1e-6,
         mode: str = 'log') -> IterationState:
@@ -120,6 +116,20 @@ def baum_welch(obs: Array,
     
     parallel_mode = len(obs.shape) > 1
 
+    multiple_mu = len(initial_params.mu.shape) > 1
+
+
+    if multiple_mu and (not parallel_mode):
+        raise ValueError('Multiple mu distributions provided, but only a single obs sequence!')
+    
+    if multiple_mu and parallel_mode:
+        if len(initial_params.mu) != len(obs):
+            raise ValueError(
+                'If multiple mu distributions are provided, their number must ' 
+                'match the number of observation sequences: len(initial_params.mu) != len(obs) '
+                f'({len(initial_params.mu)} !=  {len(obs)})'
+                )
+
     m = initial_params.O.shape[-1]
 
     def iteration(
@@ -142,18 +152,35 @@ def baum_welch(obs: Array,
                 _log_llhood = vmap(lambda _o: log_likelihood(_o, inner_carry.params))(obs)
                 log_llhood = jnp.sum(_log_llhood)
 
+                # Maximization - step
+                # Initial state probabilities
+                if multiple_mu:
+                    # Separate mu estimates for each sequence
+                    mu = gamma[:, 0].T
+                else:
+                    # Average the mu estimates for all sequences
+                    mu = jnp.mean(gamma[:, 0].T, axis=1)
+
                 gamma = jnp.concat(gamma, axis=0)
                 xi = jnp.concat(xi, axis=0)
             else:
                 gamma, xi = forward_backward(obs, inner_carry.params, mode=mode)
 
+                # Maximization - step
+                # Initial state probabilities
+                mu = gamma[0]
+
                 log_llhood = log_likelihood(obs, inner_carry.params)
 
             # Maximizaton - step
+            # Transition and observation probabilities
             if mode == 'log':
-                updated = _maximization_step_log(obs, gamma, xi, m)
+                T, O = _maximization_step_log(obs, gamma, xi, m)
+                updated = HiddenMarkovParameters(T, O, mu, is_log=True)
+
             else:
-                updated = _maximization_step(obs, gamma, xi, m)
+                T, O = _maximization_step(obs, gamma, xi, m)
+                updated = HiddenMarkovParameters(T, O, mu, is_log=False)
 
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    
 
