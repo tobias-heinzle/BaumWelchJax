@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Self
 
 import jax
 import jax.lax as lax
@@ -7,7 +7,7 @@ from jax.scipy.special import logsumexp
 
 from jax import Array, vmap
 
-from ..util import wrapped_jit, normalize_rows
+from ..util import wrapped_jit, normalize_rows, standardize_shapes
 from ..models import HiddenMarkovParameters
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
@@ -25,6 +25,34 @@ class IterationState(NamedTuple):
     residuals: Array
     iterations: int
     terminated: bool
+
+    def squeeze(self) -> Self:
+        return IterationState(
+            params=HiddenMarkovParameters(
+                self.params.T.squeeze(),
+                self.params.O.squeeze(),
+                self.params.mu.squeeze(),
+                self.params.is_log
+            ),
+            log_likelihoods=self.log_likelihoods.squeeze(),
+            residuals=self.residuals.squeeze(),
+            iterations=self.iterations,
+            terminated=self.terminated
+        )
+    
+    def replace_mu(self, new_mu: Array) -> Self:
+        return IterationState(
+            params=HiddenMarkovParameters(
+                self.params.T,
+                self.params.O,
+                new_mu,
+                self.params.is_log
+            ),
+            log_likelihoods=self.log_likelihoods,
+            residuals=self.residuals,
+            iterations=self.iterations,
+            terminated=self.terminated
+        )
 
 def _require_x64():
     if not jax.config.jax_enable_x64:
@@ -98,7 +126,7 @@ def baum_welch(obs: Array,
     :type epsilon: float
     :param mode: Flag to indicate if log probabilities should be used. Can be either `log` or `regular`
     :type mode: str
-    :return: Returns the parameter estimate as well as the likelihood and residual sequences.
+    :return: Returns the parameter estimate as well as the likelihood and residual sequences. (log or regular probabilities based on `mode`)
     :rtype: IterationState
     '''
     
@@ -114,23 +142,37 @@ def baum_welch(obs: Array,
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
     
-    parallel_mode = len(obs.shape) > 1
+    # Peform checks if sizes match up and ensure obs always has a leading axis
+    obs, mu = standardize_shapes(obs, initial_params)
 
-    multiple_mu = len(initial_params.mu.shape) > 1
+    # If mulitple observation sequences, but only a single mu distribution are passed, 
+    # use a shared mu distribution for all sequences
+    shared_mu = (len(obs) > 1) and (initial_params.mu.ndim == 1)
 
+    initial_params = HiddenMarkovParameters(initial_params.T, initial_params.O, mu, initial_params.is_log)
 
-    if multiple_mu and (not parallel_mode):
-        raise ValueError('Multiple mu distributions provided, but only a single obs sequence!')
-    
-    if multiple_mu and parallel_mode:
-        if len(initial_params.mu) != len(obs):
-            raise ValueError(
-                'If multiple mu distributions are provided, their number must ' 
-                'match the number of observation sequences: len(initial_params.mu) != len(obs) '
-                f'({len(initial_params.mu)} !=  {len(obs)})'
-                )
+    final_state = _baum_welch_impl(obs, initial_params, max_iter, epsilon, shared_mu, mode)
+
+    if shared_mu:
+        final_state = final_state.replace_mu(jnp.mean(final_state.params.mu, axis=0))
+
+    return final_state.squeeze()
+
+@wrapped_jit(static_argnames=["max_iter", "epsilon", "mode", "shared_mu"])
+def _baum_welch_impl(obs: Array,
+        initial_params: HiddenMarkovParameters,
+        max_iter: int = 100,
+        epsilon: float = 1e-6,
+        shared_mu: bool = True,
+        mode: str = 'log') -> IterationState:
+    '''This implementation already expects the initial state distributions mu and obs to have a leading axis of
+    the same lenght.'''
 
     m_obs = initial_params.O.shape[-1]
+    n_mu = initial_params.mu.shape[0]
+    is_log = mode == 'log'
+
+    update_parameters = _maximization_step_log if is_log else _maximization_step
 
     def iteration(
             carry: IterationState,
@@ -145,43 +187,30 @@ def baum_welch(obs: Array,
             # Expectation - step
             # (Forward-Backward algorithm for estimating probabilities 
             # of the latent variables (states) given the observations)
-            if parallel_mode:
-                gamma, xi = vmap(
-                    lambda _o: forward_backward(_o, inner_carry.params, mode=mode))(obs)
-                
-                _log_llhood = vmap(lambda _o: log_likelihood(_o, inner_carry.params))(obs)
-                log_llhood = jnp.sum(_log_llhood)
+            gamma, xi = forward_backward(obs, inner_carry.params, mode=mode, squeeze=False)
+            
+            _log_llhood = log_likelihood(obs, inner_carry.params)
+            log_llhood = jnp.sum(_log_llhood)
 
-                # Maximization - step
-                # Initial state probabilities
-                if multiple_mu:
-                    # Separate mu estimates for each sequence
-                    mu = gamma[:, 0].T
-                else:
-                    # Average the mu estimates for all sequences
-                    mu = jnp.mean(gamma[:, 0].T, axis=1)
 
-                gamma = jnp.concat(gamma, axis=0)
-                xi = jnp.concat(xi, axis=0)
+            # Maximization - step
+            # Initial state probabilities
+            if shared_mu:
+                # Use a shared average mu estimate for all sequences
+                mu = jnp.mean(gamma[:, 0], axis=0)[None, ...].repeat(n_mu, axis=0)
             else:
-                gamma, xi = forward_backward(obs, inner_carry.params, mode=mode)
+                # Separate mu estimates for each sequence
+                mu = gamma[:, 0]
 
-                # Maximization - step
-                # Initial state probabilities
-                mu = gamma[0]
+            gamma = jnp.concat(gamma, axis=0)
+            xi = jnp.concat(xi, axis=0)
 
-                log_llhood = log_likelihood(obs, inner_carry.params)
-
-            # Maximizaton - step
+            # Maximization - step
             # Transition and observation probabilities
-            if mode == 'log':
-                T, O = _maximization_step_log(obs, gamma, xi, m_obs)
-                updated = HiddenMarkovParameters(T, O, mu, is_log=True)
+            T, O = update_parameters(obs, gamma, xi, m_obs)
+            updated = HiddenMarkovParameters(T, O, mu, is_log=is_log)
 
-            else:
-                T, O = _maximization_step(obs, gamma, xi, m_obs)
-                updated = HiddenMarkovParameters(T, O, mu, is_log=False)
-
+            
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    
 
             residuals = inner_carry.residuals.at[inner_carry.iterations].set(residual)

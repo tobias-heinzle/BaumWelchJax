@@ -166,6 +166,7 @@ def test_observation_probabilities_structured(mode):
     _, obs = jax.vmap(lambda _k: generate_sequence(_k, res_params, 100))(jnp.array(seq_keys))
     obs_dist_over_time = jax.lax.map(lambda o: jnp.count_nonzero(obs == o, axis=0), jnp.arange(m)) / n_seq
 
+    assert res_params.mu.shape == (n,)
     assert not result.terminated
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= 0), f'{result.iterations} iterations performed until monotonicity violated'
     assert jnp.allclose(OBS_DISTR_STRUCTURED_100_STEPS, obs_dist_over_time, atol=0.07), f'res_params.O = {res_params.O}'

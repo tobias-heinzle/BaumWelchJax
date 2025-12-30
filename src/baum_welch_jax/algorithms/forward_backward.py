@@ -22,8 +22,12 @@ class ForwardBackwardResult(NamedTuple):
     gamma: Array
     xi: Array
 
-@wrapped_jit(static_argnames=['mode'])
-def forward_backward(obs: Array, hmm: HiddenMarkovParameters, mode: str = 'log') -> ForwardBackwardResult:
+@wrapped_jit(static_argnames=['mode', 'squeeze'])
+def forward_backward(
+    obs: Array, 
+    hmm: HiddenMarkovParameters, 
+    mode: str = 'log', 
+    squeeze: bool = True) -> ForwardBackwardResult:
     '''
     Computes the forward and backward probability distributions of being in a given state,
     conditioned on all observations prior and after. All in one single pass over the observations.
@@ -37,6 +41,8 @@ def forward_backward(obs: Array, hmm: HiddenMarkovParameters, mode: str = 'log')
     :type hmm: HiddenMarkovModel
     :param mode: Flag to indicate calculations performed in `log` or `regular` space
     :type mode: str
+    :param squeeze: If `squeeze` is set to true, the leading axis of the return values will only be kept if it has length > 1.
+    :type squeeze: bool
     :return: Resulting conditional distributions `gamma` and `xi`
     :rtype: ForwardBackwardResult
     '''
@@ -61,8 +67,11 @@ def forward_backward(obs: Array, hmm: HiddenMarkovParameters, mode: str = 'log')
     else:
         raise ValueError('mode argument must be either "log" or "regular"!')
     
-    return ForwardBackwardResult(gamma=gamma.squeeze(), xi=xi.squeeze())
-
+    if squeeze:
+        return ForwardBackwardResult(gamma=gamma.squeeze(), xi=xi.squeeze())
+    else:
+        return ForwardBackwardResult(gamma=gamma, xi=xi)
+    
 @wrapped_jit()
 def _forward_backward_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
 
