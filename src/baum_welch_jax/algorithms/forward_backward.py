@@ -73,7 +73,11 @@ def forward_backward(
         return ForwardBackwardResult(gamma=gamma, xi=xi)
     
 @wrapped_jit()
-def _forward_backward_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _forward_backward_impl(
+    obs: Array, 
+    T: Array, 
+    O: Array, 
+    mu: Array) -> tuple[Array, Array]:
 
     n = mu.shape[0]
     t_max = len(obs)
@@ -126,7 +130,11 @@ def _forward_backward_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[A
     return gamma, xi
 
 @wrapped_jit()
-def _forward_backward_log_impl(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
+def _forward_backward_log_impl(
+    obs: Array, 
+    log_T: Array, 
+    log_O: Array, 
+    log_mu: Array) -> tuple[Array, Array]:
 
     n = log_mu.shape[0]
     t_max = len(obs)
@@ -168,7 +176,7 @@ def _forward_backward_log_impl(obs: Array, log_T: Array, log_O: Array, log_mu: A
     beta = jnp.flip(beta, axis=0)
 
     gamma = alpha + beta
-    gamma -= logsumexp(gamma, axis=1)[:,None]
+    gamma = gamma - logsumexp(gamma, axis=-1, keepdims=True)
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
@@ -176,13 +184,14 @@ def _forward_backward_log_impl(obs: Array, log_T: Array, log_O: Array, log_mu: A
     # become an addition and the normalization a subtraction of the logsumexp
     obs_logprobs = jnp.take(log_O, obs[1:], axis=1).T
 
-    xi = alpha[:-1, :, None] @ jnp.ones((1, n))
-    xi += jnp.matrix_transpose(obs_logprobs[:,:,None] @ jnp.ones((1, n)))
-    xi += jnp.matrix_transpose(beta[1:, :, None] @ jnp.ones((1, n)))
+    # TODO: Implement this more elegantly to avoid matrix multiplication!
+    xi = alpha[:-1, :, None].repeat(n, axis=-1) # @ jnp.ones((1, n))
+    xi += jnp.matrix_transpose(obs_logprobs[:,:,None].repeat(n, axis=-1))# @ jnp.ones((1, n)))
+    xi += jnp.matrix_transpose(beta[1:, :, None].repeat(n, axis=-1))# @ jnp.ones((1, n)))
     xi += log_T[None, ...]
 
     # Normalize
-    xi -= logsumexp(xi, axis=(1,2))[:, None, None]
+    xi = xi - logsumexp(xi, axis=(1,2))[:, None, None]
 
     return gamma, xi
 

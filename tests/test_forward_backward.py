@@ -1,5 +1,6 @@
-import jax
+
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 import pytest
 
@@ -255,3 +256,42 @@ def test_fwd_bwd_multiple_mu_log_6_steps():
 	
 	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
 	assert jnp.allclose(xi, test_transitions, atol=0.026)
+
+
+# Test consistency of gamma and xi
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_consistency_gamma_xi(mode, sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode=mode)
+	if mode == 'log':
+		gamma = jnp.exp(gamma)
+		xi = jnp.exp(xi)
+	
+	gamma_slice = gamma[:-1]
+	xi_summed = jnp.sum(xi, axis= -1)
+
+	assert jnp.allclose(gamma_slice, xi_summed), f'{gamma_slice.tolist()} != {xi_summed.tolist()}'
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_normalization_gamma_xi(mode, sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode=mode)
+
+	if mode == 'log':
+		gamma = jnp.exp(gamma)
+		xi = jnp.exp(xi)
+	
+	xi_summed = jnp.sum(xi, axis = (1, 2))
+	gamma_summed = jnp.sum(gamma, axis = 1)
+
+	assert jnp.allclose(gamma_summed, 1.0)
+	assert jnp.allclose(xi_summed, 1.0)
+
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_normalization_gamma_xi_logspace(sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode='log')
+	xi_summed = logsumexp(xi, axis = (1, 2))
+	gamma_summed = logsumexp(gamma, axis = 1)
+	
+	assert jnp.allclose(gamma_summed, 0.0, atol=1e-6)
+	assert jnp.allclose(xi_summed, 0.0, atol=1e-6)

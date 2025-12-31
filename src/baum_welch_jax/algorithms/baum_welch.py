@@ -1,11 +1,11 @@
-from typing import NamedTuple, Self
+from typing import Callable, NamedTuple, Self
 
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-from jax import Array, vmap
+from jax import Array
 
 from ..util import wrapped_jit, normalize_rows, standardize_shapes
 from ..models import HiddenMarkovParameters
@@ -42,12 +42,7 @@ class IterationState(NamedTuple):
     
     def replace_mu(self, new_mu: Array) -> Self:
         return IterationState(
-            params=HiddenMarkovParameters(
-                self.params.T,
-                self.params.O,
-                new_mu,
-                self.params.is_log
-            ),
+            params=self.params.replace_mu(new_mu),
             log_likelihoods=self.log_likelihoods,
             residuals=self.residuals,
             iterations=self.iterations,
@@ -85,6 +80,7 @@ def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> tuple
     T -= logsumexp(T, axis=-1)[..., None]
 
     O = lax.map(lambda o: logsumexp(
+        # This log will be -inf at a given index if obs != o there!
         jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
     O -= logsumexp(gamma, axis=0)[..., None]
 
@@ -106,11 +102,13 @@ def _compute_residual(updated: HiddenMarkovParameters, old: HiddenMarkovParamete
     return jnp.max(jnp.array([residual_T, residual_O, residual_mu]))
     
 
-@wrapped_jit(static_argnames=["max_iter", "epsilon", "mode"])
+@wrapped_jit(static_argnames=["max_iter", "tol", "check_ascent", "ascent_tol", "mode"])
 def baum_welch(obs: Array,
         initial_params: HiddenMarkovParameters,
         max_iter: int = 100,
-        epsilon: float = 1e-6,
+        tol: float = 1e-6,
+        check_ascent: bool = False,
+        ascent_tol: float = 0.0,
         mode: str = 'log') -> IterationState:
     '''
     Implementation of expectation maximization for hidden Markov models.
@@ -122,11 +120,15 @@ def baum_welch(obs: Array,
     :type initial_params: HiddenMarkovModel
     :param max_iter: Maximum number of iterations
     :type max_iter: int
-    :param epsilon: Convergence threshold
-    :type epsilon: float
+    :param tol: Tolerance thershold for convergence
+    :type tol: float
+    :param check_ascent: If `True` iteration is stopped once objective decreases for more then `ascent_tol`.
+    :type check_ascent: bool
+    :param ascent_tol: Tolerance threshold for the objective increases when ascent checking is enabled
+    :type ascent_tol: float
     :param mode: Flag to indicate if log probabilities should be used. Can be either `log` or `regular`
     :type mode: str
-    :return: Returns the parameter estimate as well as the likelihood and residual sequences. (log or regular probabilities based on `mode`)
+    :return: Returns the parameter estimate as well as the computed likelihoods and residual sequences. (log or regular probabilities based on `mode`)
     :rtype: IterationState
     '''
     
@@ -151,18 +153,38 @@ def baum_welch(obs: Array,
 
     initial_params = HiddenMarkovParameters(initial_params.T, initial_params.O, mu, initial_params.is_log)
 
-    final_state = _baum_welch_impl(obs, initial_params, max_iter, epsilon, shared_mu, mode)
+    def stop_criterion(state: IterationState) -> bool:
+        n_step = state.iterations
+        log_llhoods = state.log_likelihoods
+
+        # The log likelihood difference of two subsequent iterations is used to determine convergence
+        is_converged = (jnp.abs(log_llhoods[n_step - 1] - log_llhoods[n_step - 2])) < tol
+
+        if check_ascent:
+            has_decreased = log_llhoods[n_step - 1] < log_llhoods[n_step - 2] - ascent_tol
+            return jnp.any(jnp.array([state.terminated, has_decreased, is_converged]))
+        
+        return jnp.any(jnp.array([state.terminated, is_converged]))
+
+    final_state = _baum_welch_impl(
+        obs, 
+        initial_params, 
+        stop_criterion, 
+        max_iter, 
+        shared_mu, 
+        mode
+        )
 
     if shared_mu:
         final_state = final_state.replace_mu(jnp.mean(final_state.params.mu, axis=0))
 
     return final_state.squeeze()
 
-@wrapped_jit(static_argnames=["max_iter", "epsilon", "mode", "shared_mu"])
+@wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu"])
 def _baum_welch_impl(obs: Array,
         initial_params: HiddenMarkovParameters,
+        stop_criterion: Callable[[IterationState], bool],
         max_iter: int = 100,
-        epsilon: float = 1e-6,
         shared_mu: bool = True,
         mode: str = 'log') -> IterationState:
     '''This implementation already expects the initial state distributions mu and obs to have a leading axis of
@@ -170,7 +192,7 @@ def _baum_welch_impl(obs: Array,
 
     m_obs = initial_params.O.shape[-1]
     n_mu = initial_params.mu.shape[0]
-    is_log = mode == 'log'
+    is_log = (mode == 'log')
 
     update_parameters = _maximization_step_log if is_log else _maximization_step
 
@@ -188,15 +210,15 @@ def _baum_welch_impl(obs: Array,
             # (Forward-Backward algorithm for estimating probabilities 
             # of the latent variables (states) given the observations)
             gamma, xi = forward_backward(obs, inner_carry.params, mode=mode, squeeze=False)
-            
-            _log_llhood = log_likelihood(obs, inner_carry.params)
-            log_llhood = jnp.sum(_log_llhood)
 
 
             # Maximization - step
             # Initial state probabilities
             if shared_mu:
-                # Use a shared average mu estimate for all sequences
+                # Use a shared average mu estimate for all sequences 
+
+                # TODO: How should this estimate be weighted? 
+                # Is it really correct to just take the mean here?
                 mu = jnp.mean(gamma[:, 0], axis=0)[None, ...].repeat(n_mu, axis=0)
             else:
                 # Separate mu estimates for each sequence
@@ -212,8 +234,10 @@ def _baum_welch_impl(obs: Array,
 
             
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    
-
             residuals = inner_carry.residuals.at[inner_carry.iterations].set(residual)
+
+            _log_llhood = log_likelihood(obs, updated.to_prob() if is_log else updated)
+            log_llhood = jnp.sum(_log_llhood)
             log_llhoods = inner_carry.log_likelihoods.at[inner_carry.iterations].set(log_llhood)
 
             return lax.cond(
@@ -223,21 +247,16 @@ def _baum_welch_impl(obs: Array,
 
             )
 
-        hmm, log_llhoods, residuals, n_step, terminated = carry
-
-        # The log likelihood difference of two subsequent iterations is used to determine convergence
-        log_llhood_diff = log_llhoods[n_step - 1] - log_llhoods[n_step - 2]
-
         carry = lax.cond(
-            # Terminate if any NaN values are encountered or the log_likelihoods have stopped increasing
-            terminated | ((n_step >= 2) & (log_llhood_diff < epsilon)),
+            stop_criterion(carry),
             lambda x: x,
             perform_step,
-            IterationState(hmm, log_llhoods, residuals, n_step, terminated)
+            carry
 
         )
 
         return carry, None
+    
 
     final_state, _ = lax.scan(
         iteration,

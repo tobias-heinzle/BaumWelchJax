@@ -66,6 +66,14 @@ class HiddenMarkovParameters:
             self.mu.astype(dtype),
             self.is_log
         )
+    
+    def replace_mu(self, new_mu: Array) -> Self:
+        return HiddenMarkovParameters(
+            self.T,
+            self.O,
+            new_mu,
+            self.is_log
+        )
 
 
 def check_valid_hmm(hmm: HiddenMarkovParameters) -> bool:
