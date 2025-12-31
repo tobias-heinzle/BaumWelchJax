@@ -1,4 +1,5 @@
 from typing import Callable, NamedTuple, Self
+import warnings
 
 import jax
 import jax.lax as lax
@@ -11,10 +12,10 @@ from ..util import wrapped_jit, normalize_rows, standardize_shapes
 from ..models import HiddenMarkovParameters
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
+from .._precision import _warn_if_fp32
 
 
-# TODO: How to deal with sequences that have different initial states mu
-#       How to handle ragged seqeunces of different length?
+# TODO: How to handle ragged seqeunces of different length?
 
 class IterationState(NamedTuple):
     '''
@@ -48,15 +49,6 @@ class IterationState(NamedTuple):
             iterations=self.iterations,
             terminated=self.terminated
         )
-
-def _require_x64():
-    if not jax.config.jax_enable_x64:
-        raise RuntimeError(
-            "baum_welch requires JAX double precision (jax_enable_x64=True).\n"
-            "Enable it when importing JAX:\n\n"
-            "  import jax\n"
-            "  jax.config.update('jax_enable_x64', True)\n"
-        )    
 
 def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
 
@@ -132,7 +124,7 @@ def baum_welch(obs: Array,
     :rtype: IterationState
     '''
     
-    _require_x64()
+    _warn_if_fp32()
     
     if mode == 'log':
         if not initial_params.is_log:
@@ -241,8 +233,9 @@ def _baum_welch_impl(obs: Array,
             log_llhoods = inner_carry.log_likelihoods.at[inner_carry.iterations].set(log_llhood)
 
             return lax.cond(
+                # Stop the iteration upon detection of NaN values!
                 jnp.any(jnp.isnan(updated.T)) | jnp.any(jnp.isnan(updated.O) | jnp.any(jnp.isnan(updated.mu))),
-                lambda: IterationState(updated, log_llhoods, residuals, inner_carry.iterations, True),
+                lambda: IterationState(inner_carry.params, log_llhoods, residuals, inner_carry.iterations, True),
                 lambda: IterationState(updated, log_llhoods, residuals, inner_carry.iterations + 1, False)
 
             )
@@ -252,7 +245,6 @@ def _baum_welch_impl(obs: Array,
             lambda x: x,
             perform_step,
             carry
-
         )
 
         return carry, None

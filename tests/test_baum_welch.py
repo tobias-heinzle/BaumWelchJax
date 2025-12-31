@@ -6,6 +6,7 @@ import jax.numpy as jnp
 
 import pytest
 
+from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
 from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm
 from baum_welch_jax.util import normalize_rows
@@ -21,7 +22,7 @@ def enable_x64(test_fn):
 
 @pytest.mark.parametrize('mode', ['regular', 'log'])
 def test_forced_x64(mode):
-    with pytest.raises(RuntimeError):
+    with pytest.warns(PrecisionWarning):
         baum_welch(jnp.zeros(10, dtype=jnp.int32), HMM_TRIVIAL, mode=mode)
 
 @pytest.mark.parametrize('mode', ['log', 'regular'])
