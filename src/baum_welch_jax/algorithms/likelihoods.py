@@ -1,27 +1,30 @@
 
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from jax import Array
 
-from ..util import wrapped_jit
-from ..models import HiddenMarkovModel
+from ..util import wrapped_jit, standardize_shapes
+from ..models import HiddenMarkovParameters
 
 @wrapped_jit(static_argnames=["return_stats"])
-def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -> Array | tuple[Array, Array]:
+def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = False) -> Array | tuple[Array, Array]:
     '''
-    Compute the likelihood of observing the sequence `obs` given the parameters of `hmm`. This function can return
+    Compute the likelihoods of observing the sequences `obs` given the parameters of `hmm`. This function can return
     two different types:
 
     If `return_stats = False`
-    - Likelihood of the sequence 
+    - Likelihood(s) of the sequence(s) 
 
     If `return_stats = True`
-    - `state_likelihoods` (likelihood of being in a given state at the end of a sequence)
-    - `likelihood_sequence` (likelihood of the observation sequence up to that index)
+    - `state_likelihoods` (likelihoods of being in a given state at the end of a sequence)
+    - `likelihood_sequence` (likelihoods of the observation sequences at each step)
     
-    In the second case, `likelihood_sequence[-1]` is the likelihood of the entire sequence.
+    If multiple sequences are passed, outputs are computed separately for each sequence.
+    If additionally also different initial state probabilities mu are passed for each
+    sequence, the likelihoods are computed with respect to these initial state probabilities.
     
     :param obs: Observation sequence
     :type obs: Array
@@ -29,22 +32,34 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
     :type hmm: HiddenMarkovModel
     :param return_stats: Flag to indicate if additional statistics should be returned
     :type return_stats: bool
-    :return: Likelihood value or state likelihoods and likelihood sequence
+    :return: Likelihood value(s) or state likelihoods and likelihood sequence
     :rtype: Array | tuple[Array, Array]
     '''
     
     if not jnp.issubdtype(obs.dtype, jnp.integer):
-        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
+        raise ValueError(f'obs must be of dtype integer! obs.dtype = {obs.dtype}')
 
     if hmm.is_log:
         hmm = hmm.to_prob()
 
+    obs, mu = standardize_shapes(obs, hmm)
+
+    state_llhoods, llhood_seq = jax.vmap(
+        lambda _o, _mu: _likelihood_impl(_o, hmm.T, hmm.O, _mu))(obs, mu)
+
+    if return_stats:
+        return state_llhoods.squeeze(), llhood_seq.squeeze()
+    else:
+        return llhood_seq[:, -1].squeeze()
+
+@wrapped_jit()
+def _likelihood_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+
     def loop_body(llhood, obs):
-        llhood = (llhood @ hmm.T) * hmm.O[:, obs]
+        llhood = (llhood @ T) * O[:, obs]
         return llhood, jnp.sum(llhood)
 
-    initial_likelihoods = hmm.mu * hmm.O[:, obs[0]]
-
+    initial_likelihoods = mu * O[:, obs[0]]
 
     state_likelihoods, sequence_likelihoods = lax.scan(
         loop_body,
@@ -58,26 +73,26 @@ def likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -
          sequence_likelihoods]
     )
 
-    if return_stats:
-        return state_likelihoods, sequence_likelihoods
-    else:
-        return sequence_likelihoods[-1]
+    return state_likelihoods, sequence_likelihoods
+
 
 
 @wrapped_jit(static_argnames=["return_stats"])
-def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = False) -> Array | tuple[Array, Array]:
+def log_likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = False) -> Array | tuple[Array, Array]:
     '''
-    Compute the log likelihood of observing the sequence `obs` given the parameters of `hmm`. This function can return
+    Compute the log likelihoods of observing the sequences `obs` given the parameters of `hmm`. This function can return
     two different types:
 
     If `return_stats = False`
-    - Log likelihood of the sequence 
+    - Log likelihood(s) of the sequence(s) 
 
     If `return_stats = True`
-    - `state_loglikelihoods` (loglikelihood of being in a given state at the end of a sequence)
-    - `loglikelihood_sequence` (loglikelihood of the observation sequence up to that index)
+    - `state_loglikelihoods` (loglikelihoods of being in a given state at the end of a sequence)
+    - `loglikelihood_sequence` (loglikelihoods of the observation sequence up to that index)
     
-    In the second case, `loglikelihood_sequence[-1]` is the loglikelihood of the entire sequence.
+    If multiple sequences are passed, outputs are computed separately for each sequence.
+    If additionally also different initial state probabilities mu are passed for each
+    sequence, the log likelihoods are computed with respect to these initial state probabilities.
     
     :param obs: Observation sequence
     :type obs: Array
@@ -85,7 +100,7 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = Fals
     :type hmm: HiddenMarkovModel
     :param return_stats: Flag to indicate if additional statistics should be returned
     :type return_stats: bool
-    :return: Log likelihood value or state log likelihoods and log likelihood sequence
+    :return: Log likelihood value(s) or state log likelihoods and log likelihood sequence
     :rtype: Array | tuple[Array, Array]
     '''
     if not jnp.issubdtype(obs.dtype, jnp.integer):
@@ -96,8 +111,19 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = Fals
 
     log_T = hmm.T
     log_O = hmm.O
-    log_mu = hmm.mu
+    
+    obs, log_mu = standardize_shapes(obs, hmm)
 
+    state_logllhoods, logllhood_seq = jax.vmap(
+        lambda _o, _mu: _log_likelihood_impl(_o, log_T, log_O, _mu))(obs, log_mu)
+
+    if return_stats:
+        return state_logllhoods.squeeze(), logllhood_seq.squeeze()
+    else:
+        return logllhood_seq[:, -1].squeeze()
+
+@wrapped_jit()
+def _log_likelihood_impl(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
 
     def loop_body(log_llhood, obs):
         log_llhood = logsumexp(
@@ -118,7 +144,5 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovModel, return_stats: bool = Fals
          loglikelihood_sequence]
     )
 
-    if return_stats:
-        return state_loglikelihoods, loglikelihood_sequence
-    else:
-        return loglikelihood_sequence[-1]
+    return state_loglikelihoods, loglikelihood_sequence
+

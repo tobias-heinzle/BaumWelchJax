@@ -37,6 +37,7 @@ Repository = "https://github.com/tobias-heinzle/BaumWelchJax"
 [tool.pytest]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "debug: marks tests for debugging, select with '-m debug'"
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["src/baum_welch_jax"]

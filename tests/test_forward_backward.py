@@ -1,5 +1,6 @@
-import jax
+
 import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 import pytest
 
@@ -47,27 +48,27 @@ def test_fwd_bwd_trivial(hmm, mode):
 def test_fwd_bwd_gamma_5_steps(obs, sampled_distr):
 	gamma, _ = forward_backward(obs, HMM_TEST, mode='regular')
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.02)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.02)
 
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, STATE_DISTR_5_STEPS))
 def test_fwd_bwd_gamma_log_5_steps(obs, sampled_distr):
 	gamma_log, _ = forward_backward(obs, HMM_TEST, mode='log')
 	gamma = jnp.exp(gamma_log)
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.02)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.02)
 
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, STATE_DISTR_6_STEPS))
 def test_fwd_bwd_gamma_6_steps(obs, sampled_distr):
 	gamma, _ = forward_backward(obs, HMM_TEST, mode='regular')
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.04)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.04)
 
 @pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, STATE_DISTR_6_STEPS))
 def test_fwd_bwd_gamma_log_6_steps(obs, sampled_distr):
 	gamma_log, _ = forward_backward(obs, HMM_TEST, mode='log')
 	gamma = jnp.exp(gamma_log)
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.04)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.04)
 	
 
 # Test the gamma computation with structured parameter set (Band structure of T, zero elements also in O)
@@ -77,7 +78,7 @@ def test_fwd_bwd_structured_gamma_5_steps(obs, sampled_distr):
 	gamma, _ = forward_backward(
 		obs, HMM_TEST_STRUCTURED, mode='regular')
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.02)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.02)
 
 @pytest.mark.parametrize(
 		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_5_STEPS, STATE_DISTR_STRUCTURED_5_STEPS))
@@ -86,7 +87,7 @@ def test_fwd_bwd_structured_gamma_log_5_steps(obs, sampled_distr):
 		obs, HMM_TEST_STRUCTURED, mode='log')
 	gamma = jnp.exp(gamma_log)
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.02)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.02)
 
 @pytest.mark.parametrize(
 		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, STATE_DISTR_STRUCTURED_6_STEPS))
@@ -94,7 +95,7 @@ def test_fwd_bwd_structured_gamma_6_steps(obs, sampled_distr):
 	gamma, _ = forward_backward(
 		obs, HMM_TEST_STRUCTURED, mode='regular')
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.04)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.04)
 
 @pytest.mark.parametrize(
 		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, STATE_DISTR_STRUCTURED_6_STEPS))
@@ -103,57 +104,68 @@ def test_fwd_bwd_structured_gamma_log_6_steps(obs, sampled_distr):
 		obs, HMM_TEST_STRUCTURED, mode='log')
 	gamma = jnp.exp(gamma_log)
 	
-	assert jnp.allclose(gamma.T, sampled_distr, atol=0.04)
+	assert jnp.allclose(gamma, sampled_distr.T, atol=0.04)
 
 
 # Test xi computation on random parameter set
-@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, TRANSITION_TENSORS_TEST_5_STEPS))
 def test_fwd_bwd_xi_5_steps(obs, sampled_distr):
 	_, xi = forward_backward(obs, HMM_TEST, mode='regular')
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.015)
 	
 
-@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_5_STEPS, TRANSITION_TENSORS_TEST_5_STEPS))
 def test_fwd_bwd_xi_log_5_steps(obs, sampled_distr):
 	_, xi_log = forward_backward(obs, HMM_TEST, mode='log')
 	xi = jnp.exp(xi_log)
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.015)
+
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
+def test_fwd_bwd_xi_6_steps(obs, sampled_distr):
+	_, xi = forward_backward(obs, HMM_TEST, mode='regular')
 	
+	assert jnp.allclose(xi, sampled_distr, atol=0.026)
+	
+
+@pytest.mark.parametrize('obs, sampled_distr', zip(TEST_SEQUENCES_6_STEPS, TRANSITION_TENSORS_TEST_6_STEPS))
+def test_fwd_bwd_xi_log_6_steps(obs, sampled_distr):
+	_, xi_log = forward_backward(obs, HMM_TEST, mode='log')
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.026)
 
 # Test xi computation with structured parameter set (Band structure of T, zero elements also in O)
 @pytest.mark.parametrize(
-		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_5_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_5_STEPS))
 def test_fwd_bwd_structured_xi_5_steps(obs, sampled_distr):
 	_, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.013)
 	
-
 @pytest.mark.parametrize(
-		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_5_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_5_STEPS))
 def test_fwd_bwd_structured_xi_log_5_steps(obs, sampled_distr):
 	_, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
 	xi = jnp.exp(xi_log)
 	
-	assert jnp.allclose(xi[0], sampled_distr[0], atol=0.015)
-	assert jnp.allclose(xi[1], sampled_distr[1], atol=0.02)
-	assert jnp.allclose(xi[2], sampled_distr[2], atol=0.03)
-	assert jnp.allclose(xi[3], sampled_distr[3], atol=0.05)
-	assert jnp.allclose(xi[4], sampled_distr[4], atol=0.11)
+	assert jnp.allclose(xi, sampled_distr, atol=0.013)
+
+@pytest.mark.parametrize(
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
+def test_fwd_bwd_structured_xi_6_steps(obs, sampled_distr):
+	_, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.018)
+	
+@pytest.mark.parametrize(
+		'obs, sampled_distr', zip(TEST_SEQUENCES_STRUCTURED_6_STEPS, TRANSITION_TENSORS_STRUCTURED_TEST_6_STEPS))
+def test_fwd_bwd_structured_xi_log_6_steps(obs, sampled_distr):
+	_, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(xi, sampled_distr, atol=0.018)
 	
 
 # Test if both versions of the algorithm arrive at the same result for relatively short sequences
@@ -191,3 +203,95 @@ def test_fwd_bwd_shapes():
 	assert xi.shape == (9, n, n)
 	assert gamma_log.shape == (10, n)
 	assert xi_log.shape == (9, n, n)
+
+# Test the parallel mode of the algorithm
+def test_fwd_bwd_parallel_6_steps():
+	test_state_distr = jnp.array(STATE_DISTR_6_STEPS)
+	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS)
+
+	gamma, xi = forward_backward(jnp.array(TEST_SEQUENCES_6_STEPS), HMM_TEST, mode='regular')
+	
+	assert gamma.shape[0] == len(test_state_distr)
+	assert xi.shape[0] == len(test_transitions)
+	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
+
+def test_fwd_bwd_parallel_log_6_steps():
+	test_state_distr = jnp.array(STATE_DISTR_6_STEPS)
+	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS)
+
+	gamma_log, xi_log = forward_backward(jnp.array(TEST_SEQUENCES_6_STEPS), HMM_TEST, mode='log')
+	gamma = jnp.exp(gamma_log)
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
+
+
+# Test parallel mode with multiple initial state probability vectors
+def test_fwd_bwd_multiple_mu_6_steps():
+	test_state_distr = jnp.array(STATE_DISTR_6_STEPS + STATE_DISTR_6_STEPS_DIFFERENT_MU)
+	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS + TRANSITION_TENSORS_TEST_6_STEPS_DIFFERENT_MU)
+	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
+	hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
+
+	gamma, xi = forward_backward(
+		jnp.array(TEST_SEQUENCES_6_STEPS + TEST_SEQUENCES_6_STEPS_DIFFERENT_MU), hmm, mode='regular')
+	
+	assert gamma.shape[0] == len(test_state_distr)
+	assert xi.shape[0] == len(test_transitions)
+	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
+
+def test_fwd_bwd_multiple_mu_log_6_steps():
+	test_state_distr = jnp.array(STATE_DISTR_6_STEPS + STATE_DISTR_6_STEPS_DIFFERENT_MU)
+	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS + TRANSITION_TENSORS_TEST_6_STEPS_DIFFERENT_MU)
+	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
+	hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
+	
+	gamma_log, xi_log = forward_backward(
+		jnp.array(TEST_SEQUENCES_6_STEPS + TEST_SEQUENCES_6_STEPS_DIFFERENT_MU), hmm, mode='log')
+	gamma = jnp.exp(gamma_log)
+	xi = jnp.exp(xi_log)
+	
+	assert jnp.allclose(gamma, jnp.matrix_transpose(test_state_distr), atol=0.04)
+	assert jnp.allclose(xi, test_transitions, atol=0.026)
+
+
+# Test consistency of gamma and xi
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_consistency_gamma_xi(mode, sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode=mode)
+	if mode == 'log':
+		gamma = jnp.exp(gamma)
+		xi = jnp.exp(xi)
+	
+	gamma_slice = gamma[:-1]
+	xi_summed = jnp.sum(xi, axis= -1)
+
+	assert jnp.allclose(gamma_slice, xi_summed), f'{gamma_slice.tolist()} != {xi_summed.tolist()}'
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_normalization_gamma_xi(mode, sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode=mode)
+
+	if mode == 'log':
+		gamma = jnp.exp(gamma)
+		xi = jnp.exp(xi)
+	
+	xi_summed = jnp.sum(xi, axis = (1, 2))
+	gamma_summed = jnp.sum(gamma, axis = 1)
+
+	assert jnp.allclose(gamma_summed, 1.0)
+	assert jnp.allclose(xi_summed, 1.0)
+
+@pytest.mark.parametrize('sequence', TEST_SEQUENCES_STRUCTURED_6_STEPS)
+def test_normalization_gamma_xi_logspace(sequence):
+	gamma, xi = forward_backward(sequence, HMM_TEST_STRUCTURED, mode='log')
+	xi_summed = logsumexp(xi, axis = (1, 2))
+	gamma_summed = logsumexp(gamma, axis = 1)
+	
+	assert jnp.allclose(gamma_summed, 0.0, atol=1e-6)
+	assert jnp.allclose(xi_summed, 0.0, atol=1e-6)
