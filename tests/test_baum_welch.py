@@ -70,6 +70,7 @@ def test_precision(mode, epsilon):
 
     result = baum_welch(obs, init_guess.astype(jnp.float64), max_iter=2000, tol=epsilon, mode=mode)
 
+    assert not result.terminated
     assert result.iterations > 5
     assert result.iterations < 2000
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
@@ -419,3 +420,20 @@ def test_likelihood_lower_bound_increase(mode):
     assert not result.terminated
     assert result.iterations > 6
     assert jnp.all(averaged_increases >= MONOTONICITY_TOLERANCE), ',\n '.join(map(str, averaged_increases.tolist()))
+
+
+@pytest.mark.debug
+@enable_x64
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+def test_multiple_sequence_8_states(mode):
+    
+    result = baum_welch(
+        TEST_SEQUENCES_REAL_DATA_8_STATES, 
+        HMM_TEST_REAL_DATA.astype(jnp.float64), 
+        1000,
+        mode=mode)
+
+    assert not jnp.any(jnp.isnan(result.params.mu)), jnp.exp(result.params.mu)
+    assert not jnp.any(jnp.isnan(result.params.O)), result.params.O
+    assert not jnp.any(jnp.isnan(result.params.T)), jnp.exp(result.params.T)
+    assert not result.terminated
