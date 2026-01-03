@@ -1,7 +1,5 @@
-from typing import Callable, NamedTuple, Self
-import warnings
+from typing import Callable
 
-import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
@@ -9,46 +7,13 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, normalize_rows, standardize_shapes
-from ..models import HiddenMarkovParameters
+from ..models import HiddenMarkovParameters, IterationState, FreezeConfig
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
 from .._precision import _warn_if_fp32
 
 
 # TODO: How to handle ragged seqeunces of different length?
-
-class IterationState(NamedTuple):
-    '''
-    Structured tuple for the (intermediate) results of expectation maximization
-    '''
-    params: HiddenMarkovParameters
-    log_likelihoods: Array
-    residuals: Array
-    iterations: int
-    terminated: bool
-
-    def squeeze(self) -> Self:
-        return IterationState(
-            params=HiddenMarkovParameters(
-                self.params.T.squeeze(),
-                self.params.O.squeeze(),
-                self.params.mu.squeeze(),
-                self.params.is_log
-            ),
-            log_likelihoods=self.log_likelihoods.squeeze(),
-            residuals=self.residuals.squeeze(),
-            iterations=self.iterations,
-            terminated=self.terminated
-        )
-    
-    def replace_mu(self, new_mu: Array) -> Self:
-        return IterationState(
-            params=self.params.replace_mu(new_mu),
-            log_likelihoods=self.log_likelihoods,
-            residuals=self.residuals,
-            iterations=self.iterations,
-            terminated=self.terminated
-        )
 
 def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
 
@@ -94,14 +59,16 @@ def _compute_residual(updated: HiddenMarkovParameters, old: HiddenMarkovParamete
     return jnp.max(jnp.array([residual_T, residual_O, residual_mu]))
     
 
-@wrapped_jit(static_argnames=["max_iter", "tol", "check_ascent", "ascent_tol", "mode"])
+@wrapped_jit(static_argnames=["max_iter", "tol", "check_ascent", "ascent_tol", "mode", 'freeze_config'])
 def baum_welch(obs: Array,
         initial_params: HiddenMarkovParameters,
         max_iter: int = 100,
         tol: float = 1e-6,
         check_ascent: bool = False,
         ascent_tol: float = 0.0,
-        mode: str = 'log') -> IterationState:
+        mode: str = 'log',
+        freeze_config: FreezeConfig = FreezeConfig()
+        ) -> IterationState:
     '''
     Implementation of expectation maximization for hidden Markov models.
     `baum_welch` can only be used with x64 precision. 
@@ -164,7 +131,8 @@ def baum_welch(obs: Array,
         stop_criterion, 
         max_iter, 
         shared_mu, 
-        mode
+        mode,
+        freeze_config
         )
 
     if shared_mu:
@@ -172,13 +140,14 @@ def baum_welch(obs: Array,
 
     return final_state.squeeze()
 
-@wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu"])
+@wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu", "freeze_config"])
 def _baum_welch_impl(obs: Array,
         initial_params: HiddenMarkovParameters,
         stop_criterion: Callable[[IterationState], bool],
-        max_iter: int = 100,
-        shared_mu: bool = True,
-        mode: str = 'log') -> IterationState:
+        max_iter: int,
+        shared_mu: bool,
+        mode: str,
+        freeze_config: FreezeConfig) -> IterationState:
     '''This implementation already expects the initial state distributions mu and obs to have a leading axis of
     the same lenght.'''
 
@@ -222,7 +191,11 @@ def _baum_welch_impl(obs: Array,
             # Maximization - step
             # Transition and observation probabilities
             T, O = update_parameters(obs, gamma, xi, m_obs)
-            updated = HiddenMarkovParameters(T, O, mu, is_log=is_log)
+            updated = HiddenMarkovParameters(
+                T if not freeze_config.T else inner_carry.params.T, 
+                O if not freeze_config.O else inner_carry.params.O, 
+                mu if not freeze_config.mu else inner_carry.params.mu, 
+                is_log=is_log)
 
             
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    

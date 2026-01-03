@@ -8,7 +8,7 @@ import pytest
 
 from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -423,8 +423,8 @@ def test_likelihood_lower_bound_increase(mode):
 
 
 @pytest.mark.debug
-@enable_x64
 @pytest.mark.parametrize('mode', ['regular', 'log'])
+@enable_x64
 def test_multiple_sequence_8_states(mode):
     
     result = baum_welch(
@@ -437,3 +437,41 @@ def test_multiple_sequence_8_states(mode):
     assert not jnp.any(jnp.isnan(result.params.O)), result.params.O
     assert not jnp.any(jnp.isnan(result.params.T)), jnp.exp(result.params.T)
     assert not result.terminated
+
+# Make sure that freezing of parameters works as intendedG
+@pytest.mark.debug
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('freeze_config', [
+    FreezeConfig(T=True),
+    FreezeConfig(O=True),
+    FreezeConfig(mu=True),
+])
+@enable_x64
+def test_freeze_config(mode, freeze_config):
+    n, m = HMM_TEST.O.shape
+    hmm = HiddenMarkovParameters(
+        normalize_rows(jax.random.uniform(key(0), (n, n))), 
+        normalize_rows(jax.random.uniform(key(1), (n, m))), 
+        normalize_rows(jax.random.uniform(key(2), (n, ))),
+        is_log = (mode=='log')).astype(jnp.float64)
+    
+    _result = baum_welch(
+        TEST_SEQUENCES_5_STEPS[0], 
+        hmm, 
+        max_iter=5, 
+        mode=mode, 
+        freeze_config=freeze_config)
+
+    result = _result.params
+    if freeze_config.T:
+        assert jnp.allclose(result.T, hmm.T)
+    else:
+        assert not jnp.allclose(result.T, hmm.T)
+    if freeze_config.O:
+        assert jnp.allclose(result.O, hmm.O)
+    else:
+        assert not jnp.allclose(result.O, hmm.O)
+    if freeze_config.mu:
+        assert jnp.allclose(result.mu, hmm.mu)
+    else:
+        assert not jnp.allclose(result.mu, hmm.mu)

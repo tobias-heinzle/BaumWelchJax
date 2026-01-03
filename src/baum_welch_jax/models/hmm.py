@@ -172,3 +172,10 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
         if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
 
+
+@dataclass(frozen=True)
+class FreezeConfig:
+    """Flags indicating which HMM parameter arrays are held fixed during inference."""
+    T: bool = False
+    O: bool = False
+    mu: bool = False
