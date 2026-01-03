@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "baum_welch_jax"
-version = "0.1.0"
+version = "0.1.1"
 description = "Baum-Welch implementation using JAX"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,13 +13,12 @@ authors = [
 ]
 
 dependencies = [
-    "jax",
-    "jax_tqdm",
+    "jax>=0.8.2",
 ]
 
 [project.optional-dependencies]
 cuda = [
-    "jax[cuda]",
+    "jax[cuda]>=0.8.2",
 ]
 
 dev = [
