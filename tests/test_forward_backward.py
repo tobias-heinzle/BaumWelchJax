@@ -298,7 +298,6 @@ def test_normalization_gamma_xi_logspace(sequence):
 
 
 # Test using real structured matrices
-@pytest.mark.debug
 @pytest.mark.parametrize('mode', ['regular', 'log'])
 def test_stability_multiple_sequence_8_states(mode):
 	

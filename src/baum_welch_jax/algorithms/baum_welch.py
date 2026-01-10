@@ -8,13 +8,15 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, normalize_rows, standardize_shapes
-from ..models import HiddenMarkovParameters, IterationState, FreezeConfig, FreezeMasks
+from ..models import HiddenMarkovParameters, IterationState, FreezeConfig, FreezeMasks, assert_valid_hmm
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
 from .._precision import _warn_if_fp32
 
 
 # TODO: How to handle ragged seqeunces of different length?
+#       In principle, also final state distributions could be provided and estimated during the forward backward pass.
+#       Look into this in more detail!
 
 def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
 
@@ -92,6 +94,12 @@ def baum_welch(obs: Array,
     '''
     
     _warn_if_fp32()
+
+    try:
+        assert_valid_hmm(initial_params)
+    except ValueError as exc:
+        raise ValueError('`initial_params` is not a valid set of parameters!') from exc
+
     
     if mode == 'log':
         if not initial_params.is_log:
@@ -127,13 +135,29 @@ def baum_welch(obs: Array,
         return jnp.any(jnp.array([state.terminated, is_converged]))
 
     # Set up freeze configuration
-    # TODO: This freeze mask setup is not correct yet!
-    # The algorithm must be adapted to correctly handle frozen paramters. 
+    # This freeze mask setup is not finished yet!
+    # Works for fixing an entire matrix or row, but does not perform correctly for
+    # fixing of single indices!
+    def is_correct(masks: FreezeMasks) -> bool:
+        # Check if the freeze mask has the supported structure
+        checked_mask = jax.tree.map(lambda leaf: 
+            jnp.all(
+                jnp.all(leaf == True, axis=-1) 
+                | jnp.all(leaf == False, axis=-1)
+            ),
+            masks)
+        
+        return checked_mask.T and checked_mask.O and checked_mask.mu
+    
+    # TODO: Adapt the algorithm must to correctly handle single frozen paramters. 
     # In particular, the re-normalization of the new parameters must be performed considering only
     # the remaining probability mass that is not yet used by the frozen parameters.
     if isinstance(freeze_config, FreezeConfig):
         freeze_masks = freeze_config.create_masks(initial_params)
     else:
+        if not is_correct(freeze_config):
+            raise ValueError('Invalid `freeze_config`: Only entire rows can be frozen, not single entries!')
+
         freeze_masks = freeze_config
 
     
@@ -151,7 +175,10 @@ def baum_welch(obs: Array,
     if shared_mu:
         final_state = final_state.replace_mu(jnp.mean(final_state.params.mu, axis=0))
 
-    return final_state.squeeze()
+    final_state = final_state.squeeze()
+    assert_valid_hmm(final_state.params)
+
+    return final_state
 
 @wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu"])
 def _baum_welch_impl(obs: Array,
@@ -165,6 +192,7 @@ def _baum_welch_impl(obs: Array,
     the same lenght.'''
 
     m_obs = initial_params.O.shape[-1]
+    n_obs = obs.shape[0]
     n_mu = initial_params.mu.shape[0]
     is_log = (mode == 'log')
 
@@ -193,7 +221,12 @@ def _baum_welch_impl(obs: Array,
 
                 # TODO: How should this estimate be weighted? 
                 # Is it really correct to just take the mean here?
-                mu = jnp.mean(gamma[:, 0], axis=0)[None, ...].repeat(n_mu, axis=0)
+                
+                if is_log:
+                    mu = logsumexp(gamma[:, 0], axis=0, keepdims=True).repeat(n_mu, axis=0) - jnp.log(n_obs)
+                else:
+                    mu = jnp.mean(gamma[:, 0], axis=0, keepdims=True).repeat(n_mu, axis=0)
+
             else:
                 # Separate mu estimates for each sequence
                 mu = gamma[:, 0]
