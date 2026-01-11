@@ -184,10 +184,9 @@ def _forward_backward_log_impl(
     # become an addition and the normalization a subtraction of the logsumexp
     obs_logprobs = jnp.take(log_O, obs[1:], axis=1).T
 
-    # TODO: Implement this more elegantly to avoid matrix multiplication!
-    xi = alpha[:-1, :, None].repeat(n, axis=-1) # @ jnp.ones((1, n))
-    xi += jnp.matrix_transpose(obs_logprobs[:,:,None].repeat(n, axis=-1))# @ jnp.ones((1, n)))
-    xi += jnp.matrix_transpose(beta[1:, :, None].repeat(n, axis=-1))# @ jnp.ones((1, n)))
+    xi = alpha[:-1, :, None].repeat(n, axis=-1)
+    xi += jnp.matrix_transpose(obs_logprobs[..., None].repeat(n, axis=-1))
+    xi += jnp.matrix_transpose(beta[1:, :, None].repeat(n, axis=-1))
     xi += log_T[None, ...]
 
     # Normalize

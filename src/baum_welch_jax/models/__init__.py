@@ -1,1 +1,2 @@
-from .hmm import HiddenMarkovParameters, check_valid_hmm, assert_valid_hmm
+from .hmm import HiddenMarkovParameters, check_valid_hmm, assert_valid_hmm, FreezeConfig, FreezeMasks
+from .iteration_state import IterationState

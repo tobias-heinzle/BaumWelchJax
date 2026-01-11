@@ -8,7 +8,7 @@ import pytest
 
 from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -70,6 +70,7 @@ def test_precision(mode, epsilon):
 
     result = baum_welch(obs, init_guess.astype(jnp.float64), max_iter=2000, tol=epsilon, mode=mode)
 
+    assert not result.terminated
     assert result.iterations > 5
     assert result.iterations < 2000
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
@@ -399,8 +400,8 @@ def test_likelihood_lower_bound_increase(mode):
     _O = uniform(key_O, (n,m)) * O_structure
     _mu = uniform(key_mu, n)
 
-    _T = _T / jnp.sum(_T, axis=1)[:, None]
-    _O = _O / jnp.sum(_O, axis=1)[:, None]
+    _T = _T / jnp.sum(_T, axis=1, keepdims=True)
+    _O = _O / jnp.sum(_O, axis=1, keepdims=True)
     _mu = _mu / jnp.sum(_mu)
     init_guess = HiddenMarkovParameters(_T, _O, _mu)
 
@@ -419,3 +420,141 @@ def test_likelihood_lower_bound_increase(mode):
     assert not result.terminated
     assert result.iterations > 6
     assert jnp.all(averaged_increases >= MONOTONICITY_TOLERANCE), ',\n '.join(map(str, averaged_increases.tolist()))
+
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@enable_x64
+def test_multiple_sequence_8_states(mode):
+    
+    result = baum_welch(
+        TEST_SEQUENCES_REAL_DATA_8_STATES, 
+        HMM_TEST_REAL_DATA.astype(jnp.float64), 
+        1000,
+        mode=mode)
+
+    assert not jnp.any(jnp.isnan(result.params.mu)), jnp.exp(result.params.mu)
+    assert not jnp.any(jnp.isnan(result.params.O)), result.params.O
+    assert not jnp.any(jnp.isnan(result.params.T)), jnp.exp(result.params.T)
+    assert not result.terminated
+
+# Make sure that freezing of parameters works as intendedG
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('freeze_config', [
+    FreezeConfig(T=True),
+    FreezeConfig(O=True),
+    FreezeConfig(mu=True),
+])
+@enable_x64
+def test_freeze_config(mode, freeze_config):
+    n, m = HMM_TEST.O.shape
+    hmm = HiddenMarkovParameters(
+        normalize_rows(jax.random.uniform(key(0), (n, n))), 
+        normalize_rows(jax.random.uniform(key(1), (n, m))), 
+        normalize_rows(jax.random.uniform(key(2), (n, ))),
+    ).astype(jnp.float64)
+    
+    _result = baum_welch(
+        TEST_SEQUENCES_5_STEPS[0], 
+        hmm, 
+        max_iter=5, 
+        mode=mode, 
+        freeze_config=freeze_config)
+
+    result = _result.params
+    if mode == 'log':
+        result = result.to_prob()
+    if freeze_config.T:
+        assert jnp.allclose(result.T, hmm.T)
+    else:
+        assert not jnp.allclose(result.T, hmm.T)
+    if freeze_config.O:
+        assert jnp.allclose(result.O, hmm.O)
+    else:
+        assert not jnp.allclose(result.O, hmm.O)
+    if freeze_config.mu:
+        assert jnp.allclose(result.mu, hmm.mu)
+    else:
+        assert not jnp.allclose(result.mu, hmm.mu)
+
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@enable_x64
+def test_freeze_config_rows(mode):
+    hmm = HiddenMarkovParameters(
+        normalize_rows(jax.random.uniform(key(0), (2, 2))), 
+        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        normalize_rows(jax.random.uniform(key(2), (2, ))))
+    freeze_masks = FreezeMasks(
+        T = jnp.array([[True, True], [False, False]]),
+        O = jnp.array([[False, False], [True, True]]),
+        mu = jnp.array([True, True])
+    )
+
+
+    _result = baum_welch(
+        jnp.array([1,1,1,1,0,0,0,1,1,1,1]).astype(jnp.int32), 
+        hmm, 
+        max_iter=5, 
+        mode=mode, 
+        freeze_config=freeze_masks)
+
+    result = _result.params
+    if mode == 'log':
+        result = result.to_prob()
+    
+    assert_valid_hmm(result)
+    assert jnp.allclose(result.T[0], hmm.T[0])
+    assert not jnp.allclose(result.T[1], hmm.T[1])
+    assert jnp.allclose(result.O[1], hmm.O[1])
+    assert not jnp.allclose(result.O[0], hmm.O[0])
+    assert jnp.allclose(result.mu, hmm.mu)
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@pytest.mark.parametrize('param', ['T', 'O', 'mu'])
+@enable_x64
+def test_freeze_config_error(mode, param):
+    hmm = HiddenMarkovParameters(
+        normalize_rows(jax.random.uniform(key(0), (2, 2))), 
+        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        normalize_rows(jax.random.uniform(key(2), (2, ))))
+    
+    T = jnp.array([[True, True], [False, False]])
+    O = jnp.array([[True, True], [False, False]])
+    mu = jnp.array([True, True])
+    
+    # Test if single frozen parameters are caught and an 
+    # Exception is thrown
+    match param:
+        case 'T':
+            T = T.at[0,0].set(False)
+        case 'O':
+            O = O.at[0,0].set(False)
+        case 'mu':
+            mu = mu.at[0].set(False)
+
+    freeze_masks = FreezeMasks(T, O, mu)
+
+    with pytest.raises(ValueError):
+        baum_welch(
+        jnp.array([1,1,1,1,0,0,0,1,1,1,1]).astype(jnp.int32), 
+        hmm, 
+        max_iter=5, 
+        mode=mode, 
+        freeze_config=freeze_masks)
+
+    
+
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+@enable_x64
+def test_input_validation(mode):
+    hmm = HiddenMarkovParameters(
+        jax.random.uniform(key(0), (2, 2)), 
+        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        normalize_rows(jax.random.uniform(key(2), (2, ))))
+    
+    with pytest.raises(ValueError):
+        baum_welch(
+            jnp.array([0,1]).astype(jnp.int32), 
+            hmm, 
+            max_iter=5, 
+            mode=mode, )

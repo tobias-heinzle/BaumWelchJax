@@ -1,5 +1,4 @@
-from typing import Callable, NamedTuple, Self
-import warnings
+from typing import Callable
 
 import jax
 import jax.lax as lax
@@ -9,46 +8,15 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, normalize_rows, standardize_shapes
-from ..models import HiddenMarkovParameters
+from ..models import HiddenMarkovParameters, IterationState, FreezeConfig, FreezeMasks, assert_valid_hmm
 from .forward_backward import forward_backward
 from .likelihoods import log_likelihood
 from .._precision import _warn_if_fp32
 
 
 # TODO: How to handle ragged seqeunces of different length?
-
-class IterationState(NamedTuple):
-    '''
-    Structured tuple for the (intermediate) results of expectation maximization
-    '''
-    params: HiddenMarkovParameters
-    log_likelihoods: Array
-    residuals: Array
-    iterations: int
-    terminated: bool
-
-    def squeeze(self) -> Self:
-        return IterationState(
-            params=HiddenMarkovParameters(
-                self.params.T.squeeze(),
-                self.params.O.squeeze(),
-                self.params.mu.squeeze(),
-                self.params.is_log
-            ),
-            log_likelihoods=self.log_likelihoods.squeeze(),
-            residuals=self.residuals.squeeze(),
-            iterations=self.iterations,
-            terminated=self.terminated
-        )
-    
-    def replace_mu(self, new_mu: Array) -> Self:
-        return IterationState(
-            params=self.params.replace_mu(new_mu),
-            log_likelihoods=self.log_likelihoods,
-            residuals=self.residuals,
-            iterations=self.iterations,
-            terminated=self.terminated
-        )
+#       In principle, also final state distributions could be provided and estimated during the forward backward pass.
+#       Look into this in more detail!
 
 def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
 
@@ -94,14 +62,15 @@ def _compute_residual(updated: HiddenMarkovParameters, old: HiddenMarkovParamete
     return jnp.max(jnp.array([residual_T, residual_O, residual_mu]))
     
 
-@wrapped_jit(static_argnames=["max_iter", "tol", "check_ascent", "ascent_tol", "mode"])
 def baum_welch(obs: Array,
         initial_params: HiddenMarkovParameters,
         max_iter: int = 100,
         tol: float = 1e-6,
         check_ascent: bool = False,
         ascent_tol: float = 0.0,
-        mode: str = 'log') -> IterationState:
+        mode: str = 'log',
+        freeze_config: FreezeConfig | FreezeMasks = FreezeConfig()
+        ) -> IterationState:
     '''
     Implementation of expectation maximization for hidden Markov models.
     `baum_welch` can only be used with x64 precision. 
@@ -125,6 +94,12 @@ def baum_welch(obs: Array,
     '''
     
     _warn_if_fp32()
+
+    try:
+        assert_valid_hmm(initial_params)
+    except ValueError as exc:
+        raise ValueError('`initial_params` is not a valid set of parameters!') from exc
+
     
     if mode == 'log':
         if not initial_params.is_log:
@@ -145,6 +120,7 @@ def baum_welch(obs: Array,
 
     initial_params = HiddenMarkovParameters(initial_params.T, initial_params.O, mu, initial_params.is_log)
 
+    @jax.jit
     def stop_criterion(state: IterationState) -> bool:
         n_step = state.iterations
         log_llhoods = state.log_likelihoods
@@ -158,31 +134,65 @@ def baum_welch(obs: Array,
         
         return jnp.any(jnp.array([state.terminated, is_converged]))
 
+    # Set up freeze configuration
+    # This freeze mask setup is not finished yet!
+    # Works for fixing an entire matrix or row, but does not perform correctly for
+    # fixing of single indices!
+    def is_correct(masks: FreezeMasks) -> bool:
+        # Check if the freeze mask has the supported structure
+        checked_mask = jax.tree.map(lambda leaf: 
+            jnp.all(
+                jnp.all(leaf == True, axis=-1) 
+                | jnp.all(leaf == False, axis=-1)
+            ),
+            masks)
+        
+        return checked_mask.T and checked_mask.O and checked_mask.mu
+    
+    # TODO: Adapt the algorithm must to correctly handle single frozen paramters. 
+    # In particular, the re-normalization of the new parameters must be performed considering only
+    # the remaining probability mass that is not yet used by the frozen parameters.
+    if isinstance(freeze_config, FreezeConfig):
+        freeze_masks = freeze_config.create_masks(initial_params)
+    else:
+        if not is_correct(freeze_config):
+            raise ValueError('Invalid `freeze_config`: Only entire rows can be frozen, not single entries!')
+
+        freeze_masks = freeze_config
+
+    
+
     final_state = _baum_welch_impl(
         obs, 
         initial_params, 
         stop_criterion, 
         max_iter, 
         shared_mu, 
-        mode
+        mode,
+        freeze_masks
         )
 
     if shared_mu:
         final_state = final_state.replace_mu(jnp.mean(final_state.params.mu, axis=0))
 
-    return final_state.squeeze()
+    final_state = final_state.squeeze()
+    assert_valid_hmm(final_state.params)
+
+    return final_state
 
 @wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu"])
 def _baum_welch_impl(obs: Array,
         initial_params: HiddenMarkovParameters,
         stop_criterion: Callable[[IterationState], bool],
-        max_iter: int = 100,
-        shared_mu: bool = True,
-        mode: str = 'log') -> IterationState:
+        max_iter: int,
+        shared_mu: bool,
+        mode: str,
+        freeze_masks: FreezeMasks) -> IterationState:
     '''This implementation already expects the initial state distributions mu and obs to have a leading axis of
     the same lenght.'''
 
     m_obs = initial_params.O.shape[-1]
+    n_obs = obs.shape[0]
     n_mu = initial_params.mu.shape[0]
     is_log = (mode == 'log')
 
@@ -211,7 +221,12 @@ def _baum_welch_impl(obs: Array,
 
                 # TODO: How should this estimate be weighted? 
                 # Is it really correct to just take the mean here?
-                mu = jnp.mean(gamma[:, 0], axis=0)[None, ...].repeat(n_mu, axis=0)
+                
+                if is_log:
+                    mu = logsumexp(gamma[:, 0], axis=0, keepdims=True).repeat(n_mu, axis=0) - jnp.log(n_obs)
+                else:
+                    mu = jnp.mean(gamma[:, 0], axis=0, keepdims=True).repeat(n_mu, axis=0)
+
             else:
                 # Separate mu estimates for each sequence
                 mu = gamma[:, 0]
@@ -222,7 +237,11 @@ def _baum_welch_impl(obs: Array,
             # Maximization - step
             # Transition and observation probabilities
             T, O = update_parameters(obs, gamma, xi, m_obs)
-            updated = HiddenMarkovParameters(T, O, mu, is_log=is_log)
+            updated = HiddenMarkovParameters(
+                jnp.where(freeze_masks.T, inner_carry.params.T, T), 
+                jnp.where(freeze_masks.O, inner_carry.params.O, O), 
+                jnp.where(freeze_masks.mu, inner_carry.params.mu, mu), 
+                is_log=is_log)
 
             
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    

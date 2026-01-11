@@ -295,3 +295,16 @@ def test_normalization_gamma_xi_logspace(sequence):
 	
 	assert jnp.allclose(gamma_summed, 0.0, atol=1e-6)
 	assert jnp.allclose(xi_summed, 0.0, atol=1e-6)
+
+
+# Test using real structured matrices
+@pytest.mark.parametrize('mode', ['regular', 'log'])
+def test_stability_multiple_sequence_8_states(mode):
+	
+	gamma, xi = forward_backward(
+		TEST_SEQUENCES_REAL_DATA_8_STATES, 
+		HMM_TEST_REAL_DATA, mode=mode)
+
+	assert not jnp.any(jnp.isnan(gamma))
+	assert not jnp.any(jnp.isnan(xi))
+	

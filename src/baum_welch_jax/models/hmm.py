@@ -74,6 +74,9 @@ class HiddenMarkovParameters:
             new_mu,
             self.is_log
         )
+    
+    def __str__(self):
+        return f'''T =\n{self.T}\n\nO =\n{self.O}\n\nmu=\n{self.mu}'''
 
 
 def check_valid_hmm(hmm: HiddenMarkovParameters) -> bool:
@@ -172,3 +175,26 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
         if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
 
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class FreezeMasks:
+    """Arrays indicating which HMM parameters are held fixed during inference."""
+    T: Array
+    O: Array
+    mu: Array
+
+
+@dataclass(frozen=True)
+class FreezeConfig:
+    """Flags indicating which HMM parameter arrays are held fixed during inference."""
+    T: bool = False
+    O: bool = False
+    mu: bool = False
+
+    def create_masks(self, hmm: HiddenMarkovParameters) -> FreezeMasks:
+        return FreezeMasks(
+            T=jnp.full_like(hmm.T, self.T, dtype=jnp.bool),
+            O=jnp.full_like(hmm.O, self.O, dtype=jnp.bool),
+            mu=jnp.full_like(hmm.mu, self.mu, dtype=jnp.bool),
+        )
