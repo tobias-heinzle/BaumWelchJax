@@ -74,6 +74,9 @@ class HiddenMarkovParameters:
             new_mu,
             self.is_log
         )
+    
+    def __str__(self):
+        return f'''T =\n{self.T}\n\nO =\n{self.O}\n\nmu=\n{self.mu}'''
 
 
 def check_valid_hmm(hmm: HiddenMarkovParameters) -> bool:
