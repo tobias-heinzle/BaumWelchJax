@@ -15,7 +15,8 @@ Features and limitations:
 
 ## Installation
 
-Install with `pip install .` or alternatively, install the additional dependencies (e.g. cuda) by `pip install .[cuda]`.
+Quick install with `pip install git+https://github.com/tobias-heinzle/BaumWelchJax.git`.
+Alternatively, clone the repo and run `pip install .`, and if you want to install the additional dependencies (e.g. cuda) use `pip install .[cuda]`.
 
 - Python >= 3.12
 - Dependencies: Only `jax`!
