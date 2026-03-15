@@ -14,23 +14,53 @@ class ObservationModel(ABC):
     def update(self, obs: Array, gamma: Array) -> Self:
         '''Compute an updated version of the observation parameters based on the
         sufficient statistics gamma and the observation sequence obs.'''
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def llhood(self, obs: Array) -> Array:
         '''Unnormalized likelihood of the states, given the observation.'''
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def logllihood(self, obs: Array) -> Array:
         '''Unnormalized log likelihood of the states, given the observation.'''
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def simulate(self, state: Array, uniform_sample: Array) -> Array:
         '''Transform a sample of a uniform distribution into a sample of the observation
         distribution.'''
-        pass
+        raise NotImplementedError
+
+    @abstractmethod
+    def to_log(self) -> Self:
+        '''Convert parameters to log params'''
+        raise NotImplementedError
+
+    @abstractmethod
+    def to_prob(self) -> Self:
+        '''Convert parameters from log params to regular probabilities'''
+        raise NotImplementedError
+    
+    @abstractmethod
+    def astype(self, dtype) -> Self:
+        '''Convert arrays to the provided dtype'''
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def is_valid(self) -> bool:
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def ndim(self) -> int:
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def dtype(self) -> jax.typing.DTypeLike:
+        raise NotImplementedError
 
 
 
@@ -39,10 +69,10 @@ class ObservationModel(ABC):
 @dataclass(frozen=True)
 class DiscreteObservationModel(ObservationModel):
     obs_probs: Array
-    is_log: bool
+    is_log: bool = field(metadata={"static": True}, default=False)
 
     def update(self, obs: Array, gamma: Array) -> Self:
-        
+
         m = self.obs_probs.shape[-1]
 
         if self.is_log:
@@ -80,3 +110,48 @@ class DiscreteObservationModel(ObservationModel):
     
     def simulate(self, state: Array, uniform_sample: Array) -> Array:
         return jnp.argmax(self.obs_cdf(state) >= uniform_sample)
+    
+    def to_log(self):
+        if self.is_log:
+            raise ValueError('Attempted log conversion; Parameters are already logprobabilities.')
+        return DiscreteObservationModel(jnp.log(self.obs_probs), True)
+    
+    def to_prob(self):
+        if self.is_log:
+            return DiscreteObservationModel(jnp.exp(self.obs_probs), False)
+        raise ValueError('Attempted probability conversion; Parameters are already probabilities.')
+    
+    def astype(self, dtype):
+        if not jnp.issubdtype(dtype, jnp.floating):
+            raise ValueError("dtype must be floating point number")
+        
+        return DiscreteObservationModel(
+            self.obs_probs.astype(dtype),
+            self.is_log
+        )
+    
+    @property
+    def ndim(self) -> int:
+        return self.obs_probs.ndim
+    
+    @property
+    def dtype(self) -> jax.typing.DTypeLike:
+        return self.obs_probs.dtype
+    
+    @property
+    def is_valid(self) -> bool:
+        correct_dims = self.ndim == 2
+        is_float = jnp.issubdtype(self.dtype, jnp.floating)
+        if self.is_log:
+            all_sum_to_one = jnp.allclose(logsumexp(self.obs_probs, axis=1), 0.0)
+
+            return jnp.all(jnp.array([correct_dims, all_sum_to_one]))
+
+        else:
+            all_positive = jnp.all(self.obs_probs >= 0)
+            all_sum_to_one = jnp.allclose(jnp.sum(self.obs_probs, axis=1), 1.0)
+              
+            return jnp.all(jnp.array([correct_dims, all_positive, all_sum_to_one, is_float]))
+    
+    def __str__(self):
+        return f'''Discrete observation model(\n\tobs_probs = \n\t{self.obs_probs}\n\n\ts_log = {self.is_log}\n)'''

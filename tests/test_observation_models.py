@@ -48,6 +48,13 @@ def test_discrete_simulate(is_log):
     assert jnp.allclose(O.simulate(1, 0.1), 0.0)
 
 
+def test_illegal_type_conversion():
+    O = DiscreteObservationModel(jnp.eye(2), False)
+
+    with pytest.raises(ValueError):
+        O.astype(jnp.int32)
+
+
 @pytest.mark.parametrize('is_log', [True, False])
 def test_discrete_update(is_log):
     # TODO: implement this using the generate and forward backward functions

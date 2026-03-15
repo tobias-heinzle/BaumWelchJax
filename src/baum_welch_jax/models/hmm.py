@@ -6,6 +6,8 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.special import logsumexp
 
+from .observation_models import ObservationModel
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class HiddenMarkovParameters:
@@ -27,9 +29,9 @@ class HiddenMarkovParameters:
     regular probabilities are also provided.
     '''
 
-    T: Array    # Transition (log)probabilities
-    O: Array    # Observation (log)probabilities
-    mu: Array   # Initial state (log)probabilities
+    T: Array            # Transition (log)probabilities
+    O: ObservationModel # Observation model
+    mu: Array           # Initial state (log)probabilities
 
     # Indicates if probabilities are regular or log probs
     is_log: bool = field(metadata={"static": True}, default=False)
@@ -40,7 +42,7 @@ class HiddenMarkovParameters:
 
         return HiddenMarkovParameters(
             jnp.log(self.T),
-            jnp.log(self.O),
+            self.O.to_log(),
             jnp.log(self.mu),
             is_log=True
         )
@@ -51,7 +53,7 @@ class HiddenMarkovParameters:
             
         return HiddenMarkovParameters(
             jnp.exp(self.T),
-            jnp.exp(self.O),
+            self.O.to_prob(),
             jnp.exp(self.mu),
             is_log=False
         )
@@ -78,47 +80,49 @@ class HiddenMarkovParameters:
     def __str__(self):
         return f'''T =\n{self.T}\n\nO =\n{self.O}\n\nmu=\n{self.mu}'''
 
+    @property
+    def is_valid(self) -> bool:
+        '''JIT save validation for HiddenMarkovModels.
+        Returns a bool that indicates if validation was succesful. '''
 
-def check_valid_hmm(hmm: HiddenMarkovParameters) -> bool:
-    '''JIT save validation for HiddenMarkovModels.
-    Returns a bool that indicates if validation was succesful. '''
+        valid_obs_model = self.O.is_valid
 
-    correct_dims = jnp.all(jnp.array([
-        hmm.T.ndim == 2, 
-        hmm.O.ndim == 2, 
-        hmm.mu.ndim == 1 or hmm.mu.ndim == 2, 
-        hmm.T.shape[0] == hmm.T.shape[1]
-    ]))
-
-    is_float = (
-        jnp.issubdtype(hmm.T.dtype, jnp.floating) 
-        & jnp.issubdtype(hmm.O.dtype, jnp.floating) 
-        & jnp.issubdtype(hmm.mu.dtype, jnp.floating)
-    )
-    
-    if hmm.is_log:
-        all_sum_to_one = jnp.all(jnp.array([
-            jnp.allclose(logsumexp(hmm.T, axis=1), 0.0),
-            jnp.allclose(logsumexp(hmm.O, axis=1), 0.0),
-            jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0)
+        correct_dims = jnp.all(jnp.array([
+            self.T.ndim == 2, 
+            # hmm.O.ndim == 2, 
+            self.mu.ndim == 1 or self.mu.ndim == 2, 
+            self.T.shape[0] == self.T.shape[1]
         ]))
 
-        return jnp.all(jnp.array([correct_dims, all_sum_to_one]))
+        is_float = (
+            jnp.issubdtype(self.T.dtype, jnp.floating) 
+            # & jnp.issubdtype(hmm.O.dtype, jnp.floating) 
+            & jnp.issubdtype(self.mu.dtype, jnp.floating)
+        )
+        
+        if self.is_log:
+            all_sum_to_one = jnp.all(jnp.array([
+                jnp.allclose(logsumexp(self.T, axis=1), 0.0),
+                # jnp.allclose(logsumexp(hmm.O, axis=1), 0.0),
+                jnp.allclose(logsumexp(self.mu, axis=-1), 0.0)
+            ]))
 
-    else:
-        all_positive = jnp.all(jnp.array([
-            jnp.all(hmm.T >= 0),
-            jnp.all(hmm.O >= 0),
-            jnp.all(hmm.mu >= 0)
-        ]))
+            return jnp.all(jnp.array([valid_obs_model, correct_dims, all_sum_to_one]))
 
-        all_sum_to_one = jnp.all(jnp.array([
-            jnp.allclose(jnp.sum(hmm.T, axis=1), 1.0),
-            jnp.allclose(jnp.sum(hmm.O, axis=1), 1.0),
-            jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0)
-        ]))
-    
-        return jnp.all(jnp.array([correct_dims, all_positive, all_sum_to_one, is_float]))
+        else:
+            all_positive = jnp.all(jnp.array([
+                jnp.all(self.T >= 0),
+                # jnp.all(hmm.O >= 0),
+                jnp.all(self.mu >= 0)
+            ]))
+
+            all_sum_to_one = jnp.all(jnp.array([
+                jnp.allclose(jnp.sum(self.T, axis=1), 1.0),
+                # jnp.allclose(jnp.sum(hmm.O, axis=1), 1.0),
+                jnp.allclose(jnp.sum(self.mu, axis=-1), 1.0)
+            ]))
+        
+            return jnp.all(jnp.array([valid_obs_model, correct_dims, all_positive, all_sum_to_one, is_float]))
 
 def assert_valid_hmm(hmm: HiddenMarkovParameters):
     '''
@@ -126,21 +130,18 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
     Throws a `ValueError` if anything is incorrect.
     '''
 
+    if not hmm.O.is_valid:
+        raise ValueError('Observation model is invalid')
+
     # Shape checks for O, T, mu
     if hmm.T.ndim != 2:
         raise ValueError("T must be a 2D matrix")
     
-    if hmm.O.ndim != 2:
-        raise ValueError("O must be a 2D matrix")
-
     if hmm.mu.ndim > 2 or hmm.mu.ndim < 1:
         raise ValueError("mu must be a either a 1D or 2D array")
     
     if not jnp.issubdtype(hmm.T.dtype, jnp.floating):
         raise ValueError("T.dtype must be floating point number")
-    
-    if not jnp.issubdtype(hmm.O.dtype, jnp.floating):
-        raise ValueError("O.dtype must be floating point number")
     
     if not jnp.issubdtype(hmm.mu.dtype, jnp.floating):
         raise ValueError("mu.dtype must be floating point number")
@@ -153,12 +154,6 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
         if jnp.any(hmm.T < 0):
             raise ValueError("T must be non-negative")
 
-        if not jnp.allclose(jnp.sum(hmm.O, axis=1), 1.0):
-            raise ValueError("Rows of T must sum to 1")
-
-        if jnp.any(hmm.O < 0):
-            raise ValueError("T must be non-negative")
-
         if not jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0):
             raise ValueError("mu distributions must all sum to 1")
 
@@ -169,12 +164,11 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
         if not jnp.allclose(logsumexp(hmm.T, axis=1), 0.0):
             raise ValueError("Rows of T must sum to 1 (logsumexp of logprobs must be 0)")
 
-        if not jnp.allclose(logsumexp(hmm.O, axis=1), 0.0):
-            raise ValueError("Rows of T must sum to 1 (logsumexp of logprobs must be 0)")
-
         if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
 
+
+# TODO: Refactor the parameter freezing to handle general observation models!
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)

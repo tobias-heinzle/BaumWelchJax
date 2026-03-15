@@ -1,2 +1,3 @@
-from .hmm import HiddenMarkovParameters, check_valid_hmm, assert_valid_hmm, FreezeConfig, FreezeMasks
+from .hmm import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks
 from .iteration_state import IterationState
+from .observation_models import ObservationModel, DiscreteObservationModel

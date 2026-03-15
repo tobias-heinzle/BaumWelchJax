@@ -3,12 +3,13 @@ import jax.numpy as jnp
 
 import pytest
 
-from baum_welch_jax.models import HiddenMarkovParameters, check_valid_hmm, assert_valid_hmm
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm
+from baum_welch_jax.models import DiscreteObservationModel
 
 def test_hmm_tree_map():
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2)),
         mu = jnp.ones((1, 2)) / 2
     )
 
@@ -19,14 +20,14 @@ def test_hmm_tree_map():
         ])
     
     assert jnp.all(result[0].T == jnp.eye(2))
-    assert jnp.all(result[0].O == jnp.eye(2))
+    assert jnp.all(result[0].O.obs_probs == jnp.eye(2))
     assert jnp.all(result[0].mu == jnp.ones(2) / 2)
 
 @pytest.mark.parametrize('is_log', [False, True])
 def test_hmm_multiple_mu(is_log):
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2)),
         mu = jnp.eye(2),
     )
 
@@ -34,13 +35,13 @@ def test_hmm_multiple_mu(is_log):
         hmm = hmm.to_log()
 
     assert_valid_hmm(hmm)
-    assert check_valid_hmm(hmm)
+    assert hmm.is_valid
 
 
 def test_hmm_to_log():
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2)),
         mu = jnp.ones(2) / 2
     )
 
@@ -52,7 +53,7 @@ def test_hmm_to_log():
 def test_hmm_to_prob():
     hmm_log = HiddenMarkovParameters(
         T = jnp.log(jnp.eye(2)),
-        O = jnp.log(jnp.eye(2)),
+        O = DiscreteObservationModel(jnp.log(jnp.eye(2)), True),
         mu = jnp.log(jnp.ones(2) / 2),
         is_log=True
     )
@@ -62,10 +63,10 @@ def test_hmm_to_prob():
     assert hmm.is_log is False
     assert_valid_hmm(hmm_log)
 
-def test_hmm_conversion():
+def test_hmm_illegal_conversion():
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2)),
         mu = jnp.ones(2) / 2
     )
     hmm_log = hmm.to_log()
@@ -78,48 +79,44 @@ def test_hmm_conversion():
 
 @pytest.mark.parametrize('dtype', [jnp.float32, jnp.float16])
 def test_hmm_astype(dtype):
-    hmm = HiddenMarkovParameters(jnp.eye(2), jnp.eye(2), jnp.ones(2) / 2)
+    hmm = HiddenMarkovParameters(
+        jnp.eye(2), 
+        DiscreteObservationModel(jnp.eye(2)), 
+        jnp.ones(2) / 2)
     hmm_typed = hmm.astype(dtype)
 
     assert hmm_typed.T.dtype == dtype
-    assert hmm_typed.O.dtype == dtype
+    assert hmm_typed.O.obs_probs.dtype == dtype
     assert hmm_typed.mu.dtype == dtype
 
 def test_hmm_invalid_type_assert():
-    _T = _O = jnp.eye(2)
+    _T = jnp.eye(2)
+    _O = DiscreteObservationModel(jnp.eye(2))
     _mu = jnp.zeros(2)
     _mu = _mu.at[0].set(1.0)
 
     with pytest.raises(ValueError):
         assert_valid_hmm(
             HiddenMarkovParameters(_T.astype(jnp.int32), _O, _mu))
-        
-    with pytest.raises(ValueError):
-        assert_valid_hmm(
-            HiddenMarkovParameters(_T, _O.astype(jnp.int32), _mu))
         
     with pytest.raises(ValueError):
         assert_valid_hmm(
             HiddenMarkovParameters(_T, _O, _mu.astype(jnp.int32)))
         
 def test_hmm_invalid_type_check():
-    _T = _O = jnp.eye(2)
+    _T = jnp.eye(2)
+    _O = DiscreteObservationModel(jnp.eye(2))
     _mu = jnp.zeros(2)
     _mu = _mu.at[0].set(1.0)
 
-    assert not check_valid_hmm(
-            HiddenMarkovParameters(_T.astype(jnp.int32), _O, _mu))
+    assert not HiddenMarkovParameters(_T.astype(jnp.int32), _O, _mu).is_valid
         
-    assert not check_valid_hmm(
-            HiddenMarkovParameters(_T, _O.astype(jnp.int32), _mu))
-        
-    assert not check_valid_hmm(
-            HiddenMarkovParameters(_T, _O, _mu.astype(jnp.int32)))
+    assert not HiddenMarkovParameters(_T, _O, _mu.astype(jnp.int32)).is_valid
 
 def test_hmm_conversion_jit():
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2)),
         mu = jnp.ones(2) / 2
     )
     hmm_log = hmm.to_log()
@@ -139,7 +136,7 @@ def test_hmm_conversion_jit():
 def test_hmm_assert_T(is_log):
     hmm = HiddenMarkovParameters(
         T = jnp.ones(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2), is_log),
         mu = jnp.ones(2) / 2,
         is_log=is_log
     )
@@ -153,7 +150,7 @@ def test_hmm_assert_T(is_log):
 def test_hmm_assert_O(is_log):
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.ones(2),
+        O = DiscreteObservationModel(jnp.ones(2), is_log),
         mu = jnp.ones(2) / 2,
         is_log=is_log
     )
@@ -167,7 +164,7 @@ def test_hmm_assert_O(is_log):
 def test_hmm_assert_mu(is_log):
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2), is_log),
         mu = jnp.ones(2),
         is_log=is_log
     )
@@ -182,7 +179,7 @@ def test_hmm_assert_mu(is_log):
 def test_hmm_assert_multiple_mu(is_log):
     hmm = HiddenMarkovParameters(
         T = jnp.eye(2),
-        O = jnp.eye(2),
+        O = DiscreteObservationModel(jnp.eye(2), is_log),
         mu = jnp.array([[0.0, 1.0], [1.0, 0.0], [0.9, 0.0]]),
         is_log=is_log
     )
@@ -196,7 +193,8 @@ def test_hmm_assert_multiple_mu(is_log):
 @pytest.mark.parametrize('is_log', [True, False])
 def test_hmm_jit_validation(is_log):
     T = O = jnp.log(jnp.eye(2)) if is_log else jnp.eye(2)
-    func = lambda x: check_valid_hmm(HiddenMarkovParameters(T.copy(), O.copy(), x, is_log=is_log))
+    O = DiscreteObservationModel(O, is_log)
+    func = lambda x: HiddenMarkovParameters(T.copy(), O, x, is_log=is_log).is_valid
     func = jax.jit(func)
     func(jnp.zeros(2))
     mu_invalid = jnp.ones(2)
