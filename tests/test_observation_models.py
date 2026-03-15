@@ -29,8 +29,8 @@ def test_discrete_basic_functionality(is_log):
     assert jnp.allclose(O.obs_cdf(1), jnp.array([0.0, 1.0]))
     assert jnp.allclose(O.llhood(0), jnp.array([1.0, 0.0]))
     assert jnp.allclose(O.llhood(1), jnp.array([0.0, 1.0]))
-    assert jnp.allclose(O.logllihood(0), jnp.array([0.0, -jnp.inf]))
-    assert jnp.allclose(O.logllihood(1), jnp.array([-jnp.inf, 0.0]))
+    assert jnp.allclose(O.logllhood(0), jnp.array([0.0, -jnp.inf]))
+    assert jnp.allclose(O.logllhood(1), jnp.array([-jnp.inf, 0.0]))
 
 
 @pytest.mark.parametrize('is_log', [True, False])

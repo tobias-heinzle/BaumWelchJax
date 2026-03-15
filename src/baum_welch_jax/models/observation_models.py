@@ -22,7 +22,7 @@ class ObservationModel(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def logllihood(self, obs: Array) -> Array:
+    def logllhood(self, obs: Array) -> Array:
         '''Unnormalized log likelihood of the states, given the observation.'''
         raise NotImplementedError
 
@@ -94,7 +94,7 @@ class DiscreteObservationModel(ObservationModel):
         
         return self.obs_probs[:, obs]
     
-    def logllihood(self, obs: Array) -> Array:
+    def logllhood(self, obs: Array) -> Array:
         if self.is_log:
             return self.obs_probs[:, obs]
 

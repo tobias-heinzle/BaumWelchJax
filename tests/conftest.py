@@ -1,11 +1,11 @@
 
 import jax.numpy as jnp
 
-from baum_welch_jax.models import HiddenMarkovParameters
+from baum_welch_jax.models import HiddenMarkovParameters, DiscreteObservationModel
 
 HMM_TRIVIAL = HiddenMarkovParameters(
     T=jnp.eye(5, dtype=jnp.float32),
-    O=jnp.eye(5, dtype=jnp.float32),
+    O=DiscreteObservationModel(jnp.eye(5, dtype=jnp.float32)),
     mu=jnp.ones(5, dtype=jnp.float32) / 5,
     is_log=False)
 
@@ -32,7 +32,7 @@ O_TEST = jnp.array([
 	[0.2132723459115592, 0.5360110824786332, 0.2507165716098077]
 ], jnp.float32)
 
-HMM_TEST = HiddenMarkovParameters(T=T_TEST, O=O_TEST, mu=MU_TEST)
+HMM_TEST = HiddenMarkovParameters(T=T_TEST, O=DiscreteObservationModel(O_TEST), mu=MU_TEST)
 
 # These test values below were computed based on 2_000_000 sequences of length 5,
 # sampled with the above parameters
@@ -1065,7 +1065,9 @@ O_TEST_STRUCTURED = jnp.array([
 ], jnp.float32)
 
 HMM_TEST_STRUCTURED = HiddenMarkovParameters(
-    T=T_TEST_STRUCTURED, O=O_TEST_STRUCTURED, mu=MU_TEST_STRUCTURED)
+    T=T_TEST_STRUCTURED, 
+    O=DiscreteObservationModel(O_TEST_STRUCTURED), 
+    mu=MU_TEST_STRUCTURED)
 
 OBS_DISTR_STRUCTURED_100_STEPS = jnp.array([
     [
@@ -1457,8 +1459,6 @@ STATE_DISTR_STRUCTURED_6_STEPS = [
 	          0.4174174174174174, 0.42842842842842843, 0.42742742742742745], [0.0, 0.0, 0.007007007007007007, 0.016016016016016016, 0.026026026026026026, 0.04004004004004004], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]),
 ]
 
-
-# TODO: Regenerate this with the new code!
 
 TRANSITION_TENSORS_STRUCTURED_TEST_5_STEPS = [
 	jnp.array([
@@ -1988,12 +1988,14 @@ HMM_TEST_REAL_DATA = HiddenMarkovParameters(
             [0.0, 0.0, 0.598578929901123, 0.40142104029655457],
             [0.0, 0.0, 0.0, 1.0]]
             ), 
-        O=jnp.array([
-            [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
-            [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
-            [0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
-            [0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 1.   ]]
-            ), 
+        O=DiscreteObservationModel(
+            jnp.array([
+				[0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
+				[0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
+				[0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
+				[0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 0.   , 1.   ]]
+            	)
+			), 
         mu=jnp.array([
             [0.5, 0.5, 0. , 0. ],
             [0.5, 0.5, 0. , 0. ],
