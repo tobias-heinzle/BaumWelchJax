@@ -73,7 +73,7 @@ def baum_welch(obs: Array,
         ) -> IterationState:
     '''
     Implementation of expectation maximization for hidden Markov models.
-    `baum_welch` can only be used with x64 precision. 
+    `baum_welch` yields best results only with x64 precision. 
     
     :param obs: Sequence of observations
     :type obs: Array
