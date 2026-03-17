@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import NamedTuple, Any, Self
+from typing import Self
 from abc import ABC, abstractmethod
 
 import jax.numpy as jnp
@@ -47,6 +47,19 @@ class ObservationModel(ABC):
         '''Convert arrays to the provided dtype'''
         raise NotImplementedError
     
+    @abstractmethod
+    def construct_frozen_parameter_pytree(self, mask: Array) -> Self:
+        '''Construct a pytree suitable for mapped masking of parameters.'''
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_params(self) -> Array:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def squeeze(self) -> Self:
+        raise NotImplementedError
+    
     @property
     @abstractmethod
     def is_valid(self) -> bool:
@@ -61,6 +74,7 @@ class ObservationModel(ABC):
     @abstractmethod
     def dtype(self) -> jax.typing.DTypeLike:
         raise NotImplementedError
+    
 
 
 
@@ -121,7 +135,7 @@ class DiscreteObservationModel(ObservationModel):
             return DiscreteObservationModel(jnp.exp(self.obs_probs), False)
         raise ValueError('Attempted probability conversion; Parameters are already probabilities.')
     
-    def astype(self, dtype):
+    def astype(self, dtype: jax.typing.DTypeLike) -> DiscreteObservationModel:
         if not jnp.issubdtype(dtype, jnp.floating):
             raise ValueError("dtype must be floating point number")
         
@@ -130,6 +144,15 @@ class DiscreteObservationModel(ObservationModel):
             self.is_log
         )
     
+    def construct_frozen_parameter_pytree(self, mask: Array) -> DiscreteObservationModel:
+        return DiscreteObservationModel(mask, self.is_log)
+    
+    def get_params(self) -> Array:
+        return self.obs_probs
+    
+    def squeeze(self):
+        return DiscreteObservationModel(self.obs_probs.squeeze(), self.is_log)
+
     @property
     def ndim(self) -> int:
         return self.obs_probs.ndim

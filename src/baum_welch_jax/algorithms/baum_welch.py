@@ -18,43 +18,15 @@ from .._precision import _warn_if_fp32
 #       In principle, also final state distributions could be provided and estimated during the forward backward pass.
 #       Look into this in more detail!
 
-def _maximization_step(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
-
-    # Average over all time steps and normalize along rows => new estimate for T
-
-    T = jnp.sum(xi, axis=0)
-    T = normalize_rows(T)
-
-    O = lax.map(lambda o: jnp.sum(
-        (obs.ravel() == o)[:, None] * gamma, axis=0), jnp.arange(m)).T
-    O = O / jnp.sum(gamma, axis=0)[..., None]
-
-    return T, O
-
-
-def _maximization_step_log(obs: Array, gamma: Array, xi: Array, m: int) -> tuple[Array, Array]:
-    
-    # Average over all time steps and normalize along rows => new estimate for T
-
-    T = logsumexp(xi, axis=0)
-    T -= logsumexp(T, axis=-1)[..., None]
-
-    O = lax.map(lambda o: logsumexp(
-        # This log will be -inf at a given index if obs != o there!
-        jnp.log(obs.ravel() == o)[:, None] + gamma, axis=0), jnp.arange(m)).T
-    O -= logsumexp(gamma, axis=0)[..., None]
-
-    return T, O
-
 
 def _compute_residual(updated: HiddenMarkovParameters, old: HiddenMarkovParameters, mode: str = 'log') -> float:
     if mode == 'log':
         residual_T = jnp.max(jnp.abs(jnp.exp(updated.T) - jnp.exp(old.T)))
-        residual_O = jnp.max(jnp.abs(jnp.exp(updated.O) - jnp.exp(old.O)))
+        residual_O = jnp.max(jnp.abs(jnp.exp(updated.O.get_params()) - jnp.exp(old.O.get_params())))
         residual_mu = jnp.max(jnp.abs(jnp.exp(updated.mu) - jnp.exp(old.mu)))
     elif mode == 'regular':
         residual_T = jnp.max(jnp.abs(updated.T - old.T))
-        residual_O = jnp.max(jnp.abs(updated.O - old.O))
+        residual_O = jnp.max(jnp.abs(updated.O.get_params() - old.O.get_params()))
         residual_mu = jnp.max(jnp.abs(updated.mu - old.mu))
     else:
         raise ValueError('`mode` must be either `log` or `regular`')
@@ -168,7 +140,6 @@ def baum_welch(obs: Array,
         stop_criterion, 
         max_iter, 
         shared_mu, 
-        mode,
         freeze_masks
         )
 
@@ -180,23 +151,23 @@ def baum_welch(obs: Array,
 
     return final_state
 
-@wrapped_jit(static_argnames=["stop_criterion", "max_iter", "mode", "shared_mu"])
+@wrapped_jit(static_argnames=["stop_criterion", "max_iter", "shared_mu"])
 def _baum_welch_impl(obs: Array,
         initial_params: HiddenMarkovParameters,
         stop_criterion: Callable[[IterationState], bool],
         max_iter: int,
         shared_mu: bool,
-        mode: str,
         freeze_masks: FreezeMasks) -> IterationState:
     '''This implementation already expects the initial state distributions mu and obs to have a leading axis of
-    the same lenght.'''
+    the same length.'''
 
-    m_obs = initial_params.O.shape[-1]
     n_obs = obs.shape[0]
     n_mu = initial_params.mu.shape[0]
-    is_log = (mode == 'log')
+    is_log = initial_params.is_log
+    mode = 'log' if is_log else 'regular'
 
-    update_parameters = _maximization_step_log if is_log else _maximization_step
+    # update_parameters = _maximization_step_log if is_log else _maximization_step
+    frozen_param_pytree = initial_params.construct_frozen_parameter_pytree(freeze_masks)
 
     def iteration(
             carry: IterationState,
@@ -217,11 +188,7 @@ def _baum_welch_impl(obs: Array,
             # Maximization - step
             # Initial state probabilities
             if shared_mu:
-                # Use a shared average mu estimate for all sequences 
 
-                # TODO: How should this estimate be weighted? 
-                # Is it really correct to just take the mean here?
-                
                 if is_log:
                     mu = logsumexp(gamma[:, 0], axis=0, keepdims=True).repeat(n_mu, axis=0) - jnp.log(n_obs)
                 else:
@@ -235,13 +202,27 @@ def _baum_welch_impl(obs: Array,
             xi = jnp.concat(xi, axis=0)
 
             # Maximization - step
-            # Transition and observation probabilities
-            T, O = update_parameters(obs, gamma, xi, m_obs)
-            updated = HiddenMarkovParameters(
-                jnp.where(freeze_masks.T, inner_carry.params.T, T), 
-                jnp.where(freeze_masks.O, inner_carry.params.O, O), 
-                jnp.where(freeze_masks.mu, inner_carry.params.mu, mu), 
-                is_log=is_log)
+            # Transition probabilities
+            if is_log:
+                T = logsumexp(xi, axis=0)
+                T -= logsumexp(T, axis=-1)[..., None]
+            else:
+                T = jnp.sum(xi, axis=0)
+                T = normalize_rows(T)
+
+            # Maximization - step
+            # Observation model
+            O = inner_carry.params.O.update(obs, gamma)
+
+            new_params = HiddenMarkovParameters(T, O, mu, is_log)
+
+            # Perform the updated only where frozen_param_pytree is not zero
+            updated = jax.tree.map(
+                jnp.where, 
+                frozen_param_pytree,
+                inner_carry.params,
+                new_params
+                )
 
             
             residual = _compute_residual(updated, inner_carry.params, mode=mode)    
@@ -253,7 +234,7 @@ def _baum_welch_impl(obs: Array,
 
             return lax.cond(
                 # Stop the iteration upon detection of NaN values!
-                jnp.any(jnp.isnan(updated.T)) | jnp.any(jnp.isnan(updated.O) | jnp.any(jnp.isnan(updated.mu))),
+                jnp.any(jnp.isnan(updated.T)) | jnp.any(jnp.isnan(updated.O.get_params()) | jnp.any(jnp.isnan(updated.mu))),
                 lambda: IterationState(inner_carry.params, log_llhoods, residuals, inner_carry.iterations, True),
                 lambda: IterationState(updated, log_llhoods, residuals, inner_carry.iterations + 1, False)
 

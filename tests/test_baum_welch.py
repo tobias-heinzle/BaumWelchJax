@@ -8,7 +8,7 @@ import pytest
 
 from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks, DiscreteObservationModel
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -33,11 +33,11 @@ def test_trivial_inference(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteObservationModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8]))
 
     _, obs = generate_sequence(key(0), hmm, 500)
@@ -49,7 +49,7 @@ def test_trivial_inference(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.05)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.001)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.001)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.00001)
 
 @pytest.mark.parametrize('epsilon', [1e-6, 1e-7, 1e-8, 1e-9, 1e-10])
@@ -59,11 +59,11 @@ def test_precision(mode, epsilon):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteObservationModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8]))
 
     _, obs = generate_sequence(key(0), hmm, 500)
@@ -94,12 +94,12 @@ def test_long_sequence(mode):
         [0.0, 0.0, 0.0, 0.0, 1.0]
     ])
     mu = jnp.array([0.0, 0.0, 0.0, 0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
     assert_valid_hmm(hmm)
 
     init_guess = HiddenMarkovParameters(
         normalize_rows(T + 0.25 * jax.random.uniform(key(0), shape=(5,5))), 
-        normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5))), 
+        DiscreteObservationModel(normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5)))), 
         normalize_rows(jnp.ones(5)))
     assert_valid_hmm(init_guess)
     
@@ -111,7 +111,7 @@ def test_long_sequence(mode):
     assert not result.terminated
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE), f'{result.iterations} iterations'
     assert jnp.allclose(res_params.T, hmm.T, atol=0.02), f'{result.iterations} iterations, T max error: {jnp.max(jnp.abs(res_params.T - hmm.T))}'
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.02), f'{result.iterations} iterations, O max error: {jnp.max(jnp.abs(res_params.O - hmm.O))}'
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.02), f'{result.iterations} iterations, O max error: {jnp.max(jnp.abs(res_params.O - hmm.O))}'
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.0001), f'{result.iterations} iterations, mu max error: {jnp.max(jnp.abs(res_params.mu - hmm.mu))}'
 
 
@@ -124,10 +124,10 @@ def test_mutli_sequence(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteObservationModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8])
         )
 
@@ -140,7 +140,7 @@ def test_mutli_sequence(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -152,10 +152,10 @@ def test_mutli_sequence_multi_mu(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([[k % 2, (k + 1) % 2] for k in range(n_seq)])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteObservationModel(jnp.ones((2,2)) / 2), 
         jnp.array([[0.49,0.51], [0.51, 0.49]] * (n_seq // 2))
         )
 
@@ -168,7 +168,7 @@ def test_mutli_sequence_multi_mu(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -178,12 +178,12 @@ def test_mutli_sequence_multi_mu_informed_parameters(mode):
     n_seq = 50
 
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
-    O = jnp.eye(2)
+    O = DiscreteObservationModel(jnp.eye(2))
     mu = jnp.array([[k % 2, (k + 1) % 2] for k in range(n_seq)])
     hmm = HiddenMarkovParameters(T, O, mu)
     init_guess = HiddenMarkovParameters(
         jnp.array([[0.8, 0.2], [0.2,0.8]]), 
-        jnp.array([[0.8, 0.2], [0.2,0.8]]),
+        DiscreteObservationModel(jnp.array([[0.8, 0.2], [0.2,0.8]])),
         jnp.ones((n_seq, 2)) / 2
         )
 
@@ -196,7 +196,7 @@ def test_mutli_sequence_multi_mu_informed_parameters(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -207,13 +207,13 @@ def test_observation_probabilities_structured(mode):
     n_seq = 1000
     seq_keys = split(key(123), n_seq)
 
-    n, m = HMM_TEST_STRUCTURED.O.shape
+    n, m = HMM_TEST_STRUCTURED.O.get_params().shape
     
     O_guess = (jnp.ones((n,m)) / m).at[-1].set(jnp.zeros(m).at[-1].set(1.0))
     mu_guess = jnp.zeros(n).at[0].set(1.0)
     init_guess = HiddenMarkovParameters(
         jnp.ones((n,n)) / n, 
-        O_guess, 
+        DiscreteObservationModel(O_guess), 
         mu_guess)
 
     _, reference_obs = jax.vmap(lambda _k: generate_sequence(_k, HMM_TEST_STRUCTURED, 100))(jnp.array(seq_keys))
@@ -252,11 +252,11 @@ def test_observation_probabilities_random(mode, seed, m, n):
     O = O / jnp.sum(O, axis=1)[..., None]
     mu = mu / jnp.sum(mu)
 
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteObservationModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones_like(T) / n, 
-        jnp.ones_like(O) / m, 
+        DiscreteObservationModel(jnp.ones_like(O) / m), 
         jnp.ones_like(mu) / n)
 
     _, obs = jax.vmap(lambda _k: generate_sequence(_k, hmm, 500))(jnp.array(seq_keys))
@@ -304,7 +304,7 @@ def test_structured_learning(mode):
     _T = _T / jnp.sum(_T, axis=1)[:, None]
     _O = _O / jnp.sum(_O, axis=1)[:, None]
     _mu = _mu / jnp.sum(_mu)
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteObservationModel(_O), _mu)
 
 
     # Run the algorithm
@@ -316,7 +316,7 @@ def test_structured_learning(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, T_TEST_STRUCTURED, atol=0.01)
-    assert jnp.allclose(res_params.O, O_TEST_STRUCTURED, atol=0.025)
+    assert jnp.allclose(res_params.O.get_params(), O_TEST_STRUCTURED, atol=0.025)
     assert jnp.allclose(res_params.mu, MU_TEST_STRUCTURED, atol= 0.07)
 
 
@@ -354,7 +354,7 @@ def test_structured_learning_different_mu(mode):
     _T = _T / jnp.sum(_T, axis=1)[:, None]
     _O = _O / jnp.sum(_O, axis=1)[:, None]
     _mu = _mu / jnp.sum(_mu, axis=1)[:, None]
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteObservationModel(_O), _mu)
 
 
     # Run the algorithm
@@ -372,7 +372,7 @@ def test_structured_learning_different_mu(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, T_TEST_STRUCTURED, atol=0.01)
-    assert jnp.allclose(res_params.O, O_TEST_STRUCTURED, atol=0.025)
+    assert jnp.allclose(res_params.O.get_params(), O_TEST_STRUCTURED, atol=0.025)
     assert jnp.mean(correct_mu_estimates) > 0.8 # Correctly identified more than 80% of the mu values
 
 
@@ -403,7 +403,7 @@ def test_likelihood_lower_bound_increase(mode):
     _T = _T / jnp.sum(_T, axis=1, keepdims=True)
     _O = _O / jnp.sum(_O, axis=1, keepdims=True)
     _mu = _mu / jnp.sum(_mu)
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteObservationModel(_O), _mu)
 
 
     # Run the algorithm
@@ -433,7 +433,7 @@ def test_multiple_sequence_8_states(mode):
         mode=mode)
 
     assert not jnp.any(jnp.isnan(result.params.mu)), jnp.exp(result.params.mu)
-    assert not jnp.any(jnp.isnan(result.params.O)), result.params.O
+    assert not jnp.any(jnp.isnan(result.params.O.get_params())), result.params.O
     assert not jnp.any(jnp.isnan(result.params.T)), jnp.exp(result.params.T)
     assert not result.terminated
 
@@ -446,10 +446,10 @@ def test_multiple_sequence_8_states(mode):
 ])
 @enable_x64
 def test_freeze_config(mode, freeze_config):
-    n, m = HMM_TEST.O.shape
+    n, m = HMM_TEST.O.get_params().shape
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (n, n))), 
-        normalize_rows(jax.random.uniform(key(1), (n, m))), 
+        DiscreteObservationModel(normalize_rows(jax.random.uniform(key(1), (n, m)))), 
         normalize_rows(jax.random.uniform(key(2), (n, ))),
     ).astype(jnp.float64)
     
@@ -468,9 +468,9 @@ def test_freeze_config(mode, freeze_config):
     else:
         assert not jnp.allclose(result.T, hmm.T)
     if freeze_config.O:
-        assert jnp.allclose(result.O, hmm.O)
+        assert jnp.allclose(result.O.get_params(), hmm.O.get_params())
     else:
-        assert not jnp.allclose(result.O, hmm.O)
+        assert not jnp.allclose(result.O.get_params(), hmm.O.get_params())
     if freeze_config.mu:
         assert jnp.allclose(result.mu, hmm.mu)
     else:
@@ -482,7 +482,7 @@ def test_freeze_config(mode, freeze_config):
 def test_freeze_config_rows(mode):
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (2, 2))), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteObservationModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     freeze_masks = FreezeMasks(
         T = jnp.array([[True, True], [False, False]]),
@@ -505,8 +505,8 @@ def test_freeze_config_rows(mode):
     assert_valid_hmm(result)
     assert jnp.allclose(result.T[0], hmm.T[0])
     assert not jnp.allclose(result.T[1], hmm.T[1])
-    assert jnp.allclose(result.O[1], hmm.O[1])
-    assert not jnp.allclose(result.O[0], hmm.O[0])
+    assert jnp.allclose(result.O.get_params()[1], hmm.O.get_params()[1])
+    assert not jnp.allclose(result.O.get_params()[0], hmm.O.get_params()[0])
     assert jnp.allclose(result.mu, hmm.mu)
 
 @pytest.mark.parametrize('mode', ['regular', 'log'])
@@ -515,7 +515,7 @@ def test_freeze_config_rows(mode):
 def test_freeze_config_error(mode, param):
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (2, 2))), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteObservationModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     
     T = jnp.array([[True, True], [False, False]])
@@ -546,10 +546,10 @@ def test_freeze_config_error(mode, param):
 
 @pytest.mark.parametrize('mode', ['regular', 'log'])
 @enable_x64
-def test_input_validation(mode):
+def test_input_validation_T(mode):
     hmm = HiddenMarkovParameters(
         jax.random.uniform(key(0), (2, 2)), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteObservationModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     
     with pytest.raises(ValueError):

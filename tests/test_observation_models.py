@@ -6,11 +6,9 @@ import jax.numpy as jnp
 
 import pytest
 
-# from baum_welch_jax import PrecisionWarning
-# from baum_welch_jax.algorithms import baum_welch, generate_sequence
-# from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks
-# from baum_welch_jax.util import normalize_rows
-from baum_welch_jax.models.observation_models import DiscreteObservationModel
+from baum_welch_jax.algorithms import generate_sequence, forward_backward
+from baum_welch_jax.models import HiddenMarkovParameters
+from baum_welch_jax.models.observation_models import DiscreteObservationModel, ObservationModel
 
 from conftest import *
 
@@ -55,8 +53,39 @@ def test_illegal_type_conversion():
         O.astype(jnp.int32)
 
 
+OBSERVATION_MODELS = [
+    (DiscreteObservationModel(jnp.array([[0.95, 0.05], [0.05, 0.95]])), DiscreteObservationModel(jnp.full((2,2), 1/2))),
+
+]
+
+def diff(x, y):
+    return jnp.abs(x - y)
+
+@pytest.mark.parametrize('true_model, test_model', OBSERVATION_MODELS)
 @pytest.mark.parametrize('is_log', [True, False])
-def test_discrete_update(is_log):
-    # TODO: implement this using the generate and forward backward functions
-    #       An updated parameter set should be closer to the true parameters.
-    raise NotImplementedError
+def test_discrete_update(true_model: ObservationModel, test_model: ObservationModel, is_log: bool):
+    T = jnp.array([[0.4, 0.6], [0.9, 0.1]])
+    mu = jnp.array([[0.0, 1.0]] * 100)
+    hmm = HiddenMarkovParameters(T, true_model, mu)
+
+    if is_log:
+        hmm = hmm.to_log()
+        true_model = true_model.to_log()
+        test_model = test_model.to_log()
+
+    # Because we are generating the gamma tensor with the true parameters, 
+    # the update should produce a new observation model very close to the 
+    # ground truth
+    _, obs = generate_sequence(jax.random.key(0), hmm, 50)    
+    gamma, _ = forward_backward(obs, hmm, 'log' if is_log else 'regular', squeeze=False)
+    gamma = jnp.concat(gamma, axis=0)
+
+    new_obs_model = test_model.update(obs, gamma)
+
+    # Check if the difference to the true parameter has been reduced
+    initial_diff = jax.tree.map(diff, true_model, test_model)
+    new_diff = jax.tree.map(diff, true_model, new_obs_model)
+    is_less = jax.tree.map(jnp.less, new_diff, initial_diff)
+    all_less = jax.tree.reduce(lambda r, x: r and jnp.all(x), is_less, True)
+
+    assert all_less
