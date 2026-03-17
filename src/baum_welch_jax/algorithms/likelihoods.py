@@ -7,7 +7,7 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, standardize_shapes
-from ..models import HiddenMarkovParameters
+from ..models import HiddenMarkovParameters, ObservationModel
 
 @wrapped_jit(static_argnames=["return_stats"])
 def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = False) -> Array | tuple[Array, Array]:
@@ -53,13 +53,13 @@ def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = Fal
         return llhood_seq[:, -1].squeeze()
 
 @wrapped_jit()
-def _likelihood_impl(obs: Array, T: Array, O: Array, mu: Array) -> tuple[Array, Array]:
+def _likelihood_impl(obs: Array, T: Array, O: ObservationModel, mu: Array) -> tuple[Array, Array]:
 
     def loop_body(llhood, obs):
-        llhood = (llhood @ T) * O[:, obs]
+        llhood = (llhood @ T) * O.llhood(obs)#O[:, obs]
         return llhood, jnp.sum(llhood)
 
-    initial_likelihoods = mu * O[:, obs[0]]
+    initial_likelihoods = mu * O.llhood(obs[0])#O[:, obs[0]]
 
     state_likelihoods, sequence_likelihoods = lax.scan(
         loop_body,
@@ -123,14 +123,14 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool =
         return logllhood_seq[:, -1].squeeze()
 
 @wrapped_jit()
-def _log_likelihood_impl(obs: Array, log_T: Array, log_O: Array, log_mu: Array) -> tuple[Array, Array]:
+def _log_likelihood_impl(obs: Array, log_T: Array, log_O: ObservationModel, log_mu: Array) -> tuple[Array, Array]:
 
     def loop_body(log_llhood, obs):
         log_llhood = logsumexp(
-            log_llhood[:, None] + log_T, axis=0) + log_O[:, obs]
+            log_llhood[:, None] + log_T, axis=0) + log_O.logllhood(obs)#log_O[:, obs]
         return log_llhood, logsumexp(log_llhood)
 
-    initial_loglikelihoods = log_mu + log_O[:, obs[0]]
+    initial_loglikelihoods = log_mu + log_O.logllhood(obs[0])#log_O[:, obs[0]]
 
     state_loglikelihoods, loglikelihood_sequence = lax.scan(
         loop_body,
