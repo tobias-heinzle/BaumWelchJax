@@ -89,22 +89,19 @@ class HiddenMarkovParameters:
 
         correct_dims = jnp.all(jnp.array([
             self.T.ndim == 2, 
-            # hmm.O.ndim == 2, 
             self.mu.ndim == 1 or self.mu.ndim == 2, 
             self.T.shape[0] == self.T.shape[1]
         ]))
 
         is_float = (
             jnp.issubdtype(self.T.dtype, jnp.floating) 
-            # & jnp.issubdtype(hmm.O.dtype, jnp.floating) 
             & jnp.issubdtype(self.mu.dtype, jnp.floating)
         )
         
         if self.is_log:
             all_sum_to_one = jnp.all(jnp.array([
-                jnp.allclose(logsumexp(self.T, axis=1), 0.0),
-                # jnp.allclose(logsumexp(hmm.O, axis=1), 0.0),
-                jnp.allclose(logsumexp(self.mu, axis=-1), 0.0)
+                jnp.allclose(logsumexp(self.T, axis=1), 0.0, atol=1e-7),
+                jnp.allclose(logsumexp(self.mu, axis=-1), 0.0, atol=1e-7)
             ]))
 
             return jnp.all(jnp.array([valid_obs_model, correct_dims, all_sum_to_one]))
@@ -112,14 +109,12 @@ class HiddenMarkovParameters:
         else:
             all_positive = jnp.all(jnp.array([
                 jnp.all(self.T >= 0),
-                # jnp.all(hmm.O >= 0),
                 jnp.all(self.mu >= 0)
             ]))
 
             all_sum_to_one = jnp.all(jnp.array([
-                jnp.allclose(jnp.sum(self.T, axis=1), 1.0),
-                # jnp.allclose(jnp.sum(hmm.O, axis=1), 1.0),
-                jnp.allclose(jnp.sum(self.mu, axis=-1), 1.0)
+                jnp.allclose(jnp.sum(self.T, axis=1), 1.0, atol=1e-7),
+                jnp.allclose(jnp.sum(self.mu, axis=-1), 1.0, atol=1e-7)
             ]))
         
             return jnp.all(jnp.array([valid_obs_model, correct_dims, all_positive, all_sum_to_one, is_float]))
@@ -140,7 +135,7 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
     '''
 
     if not hmm.O.is_valid:
-        raise ValueError('Observation model is invalid')
+        raise ValueError(f'Observation model is invalid: {hmm.O}')
 
     # Shape checks for O, T, mu
     if hmm.T.ndim != 2:
@@ -157,23 +152,23 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
 
     # Value assertions that O, T, mu are valid probability distributions
     if not hmm.is_log:
-        if not jnp.allclose(jnp.sum(hmm.T, axis=1), 1.0):
+        if not jnp.allclose(jnp.sum(hmm.T, axis=-1), 1.0, atol=1e-7):
             raise ValueError("Rows of T must sum to 1")
 
         if jnp.any(hmm.T < 0):
             raise ValueError("T must be non-negative")
 
-        if not jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0):
+        if not jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0, atol=1e-7):
             raise ValueError("mu distributions must all sum to 1")
 
         if jnp.any(hmm.mu < 0):
             raise ValueError("mu must be non-negative")
         
     if hmm.is_log:
-        if not jnp.allclose(logsumexp(hmm.T, axis=1), 0.0):
+        if not jnp.allclose(logsumexp(hmm.T, axis=-1), 0.0, atol=1e-7):
             raise ValueError("Rows of T must sum to 1 (logsumexp of logprobs must be 0)")
 
-        if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0):
+        if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0, atol=1e-7):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
 
 

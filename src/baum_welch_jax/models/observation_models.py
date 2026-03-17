@@ -2,11 +2,12 @@ from dataclasses import dataclass, field
 from typing import Self
 from abc import ABC, abstractmethod
 
-import jax.numpy as jnp
+import jax
 from jax import Array, lax
 from jax.scipy.special import logsumexp
-import jax
+from jax.scipy.stats import multivariate_normal
 
+import jax.numpy as jnp
 
 class ObservationModel(ABC):
 
@@ -60,6 +61,10 @@ class ObservationModel(ABC):
     def squeeze(self) -> Self:
         raise NotImplementedError
     
+    @abstractmethod
+    def check_obs_compatibility(self, obs) -> bool:
+        raise NotImplementedError
+    
     @property
     @abstractmethod
     def is_valid(self) -> bool:
@@ -73,6 +78,11 @@ class ObservationModel(ABC):
     @property
     @abstractmethod
     def dtype(self) -> jax.typing.DTypeLike:
+        raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def has_multiple_outputs(self) -> bool:
         raise NotImplementedError
     
 
@@ -114,7 +124,7 @@ class DiscreteObservationModel(ObservationModel):
 
         return jnp.log(self.obs_probs[:, obs])
     
-    def obs_cdf(self, state):
+    def _obs_cdf(self, state):
         # TODO: should this be field of the class, instead of computation 
         # for every sample?
         if self.is_log:
@@ -123,7 +133,7 @@ class DiscreteObservationModel(ObservationModel):
         return jnp.cumsum(self.obs_probs[state])
     
     def simulate(self, state: Array, uniform_sample: Array) -> Array:
-        return jnp.argmax(self.obs_cdf(state) >= uniform_sample)
+        return jnp.argmax(self._obs_cdf(state) >= uniform_sample)
     
     def to_log(self):
         if self.is_log:
@@ -153,6 +163,9 @@ class DiscreteObservationModel(ObservationModel):
     def squeeze(self):
         return DiscreteObservationModel(self.obs_probs.squeeze(), self.is_log)
 
+    def check_obs_compatibility(self, obs: Array) -> bool:
+        return jnp.issubdtype(obs.dtype, jnp.integer)
+
     @property
     def ndim(self) -> int:
         return self.obs_probs.ndim
@@ -175,6 +188,119 @@ class DiscreteObservationModel(ObservationModel):
             all_sum_to_one = jnp.allclose(jnp.sum(self.obs_probs, axis=1), 1.0)
               
             return jnp.all(jnp.array([correct_dims, all_positive, all_sum_to_one, is_float]))
+        
+    @property
+    def has_multiple_outputs(self) -> bool:
+        return False
     
     def __str__(self):
         return f'''Discrete observation model(\n\tobs_probs = \n\t{self.obs_probs}\n\n\ts_log = {self.is_log}\n)'''
+    
+
+
+# TODO: Test this and add some FWD BWD and BW tests using this as well
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class GaussianObservationModel(ObservationModel):
+    mean: Array
+    covariance: Array
+    is_log: bool = field(metadata={"static": True}, default=False)
+
+    def update(self, obs: Array, gamma: Array) -> Self:
+        assert obs.ndim == 3, f'obs.ndim = {obs.ndim} != 3'
+
+        k, l, o = obs.shape
+        obs = obs.reshape((k * l, o))
+
+
+        if self.is_log:
+            # If the is_log flag is set, we expect a gamma tensor
+            # with log values!
+            gamma = jnp.exp(gamma)
+
+        norm_const = jnp.sum(gamma, axis=0)
+
+        mean = jnp.einsum('ij, ik -> jk', gamma, obs)
+        mean = mean / norm_const
+
+        diff = obs[:, None, :] - mean
+        outer = jnp.einsum('ijk, ijl -> ijkl', diff, diff)
+
+        sigma = jnp.sum(gamma[..., None, None] * outer, axis=0)
+        sigma = sigma / norm_const[:, None, None]
+
+        return GaussianObservationModel(mean, sigma, self.is_log)
+
+    def llhood(self, obs: Array) -> Array:
+        return jax.vmap(multivariate_normal.pdf, in_axes=(None, 0, 0))(obs, self.mean, self.covariance)
+    
+    def logllhood(self, obs: Array) -> Array:
+        return jax.vmap(multivariate_normal.logpdf, in_axes=(None, 0, 0))(obs, self.mean, self.covariance)
+    
+    def simulate(self, state: Array, uniform_sample: Array) -> Array:
+        # TODO: Should this method be refactored? This cast into int seems
+        # to be an unnecessary move, for questionable efficiency gains in the
+        # discrete case.
+        float_type = jnp.result_type(uniform_sample)
+        int_type = jnp.int64 if float_type == jnp.float64 else jnp.int32
+        seed = jax.lax.bitcast_convert_type(uniform_sample, int_type)
+        return jax.random.multivariate_normal(jax.random.key(seed), self.mean[state], self.covariance[state])
+    
+    def check_obs_compatibility(self, obs: Array) -> bool:
+        return jnp.issubdtype(obs.dtype, jnp.floating)
+
+    def to_log(self) -> GaussianObservationModel:
+        return GaussianObservationModel(self.mean, self.covariance, is_log=True)
+
+    def to_prob(self) -> GaussianObservationModel:
+        return GaussianObservationModel(self.mean, self.covariance, is_log=False)
+    
+    def astype(self, dtype) -> GaussianObservationModel:
+        return GaussianObservationModel(self.mean.astype(dtype), self.covariance.astype(dtype), is_log=self.is_log)
+    
+    @property
+    def is_valid(self) -> bool:
+        nan_parameters = (
+            jnp.any(jnp.isnan(self.mean)) &
+            jnp.any(jnp.isnan(self.covariance))
+        )
+
+        likelihoods = jax.vmap(
+            multivariate_normal.pdf,
+        )(jnp.zeros_like(self.mean), self.mean, self.covariance)
+
+        nan_likelihoods = jnp.any(jnp.isnan(likelihoods))
+
+        return (not nan_parameters) and (not nan_likelihoods)
+    
+    @property
+    def has_multiple_outputs(self) -> bool:
+        return True
+        
+    def __str__(self):
+        return f'''Gaussian observation model(\n\tmean = \n{self.mean}\n\n\tcovariance = \n{self.covariance}\n)'''
+    
+    def construct_frozen_parameter_pytree(self, mask: Array) -> Self:
+        '''Construct a pytree suitable for mapped masking of parameters.'''
+        mean_mask = mask[0]
+        covariance_mask = mask[1:]
+
+        return GaussianObservationModel(mean_mask, covariance_mask, self.is_log)
+    
+    def get_params(self) -> Array:
+        return jnp.concat([self.mean[None, ...], self.covariance])
+    
+    def squeeze(self) -> GaussianObservationModel:
+        '''Does nothing for this model, but still present for compatibility'''
+        return self
+
+    ### TODO:
+    
+    @property
+    def ndim(self) -> int:
+        raise NotImplementedError
+    
+    @property
+    def dtype(self) -> jax.typing.DTypeLike:
+        raise NotImplementedError

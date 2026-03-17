@@ -205,7 +205,7 @@ def _baum_welch_impl(obs: Array,
             # Transition probabilities
             if is_log:
                 T = logsumexp(xi, axis=0)
-                T -= logsumexp(T, axis=-1)[..., None]
+                T -= logsumexp(T, axis=-1, keepdims=True)
             else:
                 T = jnp.sum(xi, axis=0)
                 T = normalize_rows(T)

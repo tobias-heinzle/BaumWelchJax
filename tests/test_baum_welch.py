@@ -9,6 +9,7 @@ import pytest
 from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
 from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks, DiscreteObservationModel
+from baum_welch_jax.models.observation_models import GaussianObservationModel
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -558,3 +559,33 @@ def test_input_validation_T(mode):
             hmm, 
             max_iter=5, 
             mode=mode, )
+        
+@pytest.mark.debug
+@enable_x64
+def test_gaussian_observation_model():
+    # Set up the ground truth model
+    cov = jax.random.uniform(jax.random.key(0), (3, 3))
+    cov = jnp.einsum('ij,kj -> jik', cov, cov) + jnp.eye(3)[None, ...]
+    mean = jax.random.uniform(jax.random.key(4), (3,3),minval=-1, maxval=1)
+    T = jnp.eye(3) * 0.97 + jnp.ones((3,3)) * 0.01
+    mu = jnp.zeros(3)
+    mu = mu.at[0].set(1.0)
+    hmm = HiddenMarkovParameters(T, GaussianObservationModel(mean, cov), mu)
+
+    # Simulate some data
+    _, obs = generate_sequence(jax.random.key(0), hmm, 5000)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = mean + 0.3 * jax.random.uniform(jax.random.key(10),(3,3))
+    G_init = GaussianObservationModel(mean_init, jnp.eye(3,3)[None, ...].repeat(3, axis=0))
+    init_hmm = HiddenMarkovParameters(T, G_init, mu)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+
+    # General bound on the tolerance
+    assert jnp.allclose(mean, res.params.O.mean, atol=.2)
+    assert jnp.allclose(cov, res.params.O.covariance, rtol=.3)
+    
+    # At most one entry with more than 10 percent error
+    assert jnp.sum(~jnp.isclose(cov, res.params.O.covariance, atol=.1)) <= 1

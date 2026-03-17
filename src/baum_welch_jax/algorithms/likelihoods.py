@@ -36,8 +36,8 @@ def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = Fal
     :rtype: Array | tuple[Array, Array]
     '''
     
-    if not jnp.issubdtype(obs.dtype, jnp.integer):
-        raise ValueError(f'obs must be of dtype integer! obs.dtype = {obs.dtype}')
+    if not hmm.O.check_obs_compatibility(obs):
+        raise ValueError(f'obs is not compatible with the chosen observation model! obs.dtype = {obs.dtype}')
 
     if hmm.is_log:
         hmm = hmm.to_prob()
@@ -56,10 +56,10 @@ def likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool = Fal
 def _likelihood_impl(obs: Array, T: Array, O: ObservationModel, mu: Array) -> tuple[Array, Array]:
 
     def loop_body(llhood, obs):
-        llhood = (llhood @ T) * O.llhood(obs)#O[:, obs]
+        llhood = (llhood @ T) * O.llhood(obs)
         return llhood, jnp.sum(llhood)
 
-    initial_likelihoods = mu * O.llhood(obs[0])#O[:, obs[0]]
+    initial_likelihoods = mu * O.llhood(obs[0])
 
     state_likelihoods, sequence_likelihoods = lax.scan(
         loop_body,
@@ -103,8 +103,10 @@ def log_likelihood(obs: Array, hmm: HiddenMarkovParameters, return_stats: bool =
     :return: Log likelihood value(s) or state log likelihoods and log likelihood sequence
     :rtype: Array | tuple[Array, Array]
     '''
-    if not jnp.issubdtype(obs.dtype, jnp.integer):
-        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
+
+    if not hmm.O.check_obs_compatibility(obs):
+        raise ValueError(f'obs is not compatible with the chosen observation model! obs.dtype = {obs.dtype}')
+
 
     if not hmm.is_log:
         hmm = hmm.to_log()
@@ -127,10 +129,10 @@ def _log_likelihood_impl(obs: Array, log_T: Array, log_O: ObservationModel, log_
 
     def loop_body(log_llhood, obs):
         log_llhood = logsumexp(
-            log_llhood[:, None] + log_T, axis=0) + log_O.logllhood(obs)#log_O[:, obs]
+            log_llhood[:, None] + log_T, axis=0) + log_O.logllhood(obs)
         return log_llhood, logsumexp(log_llhood)
 
-    initial_loglikelihoods = log_mu + log_O.logllhood(obs[0])#log_O[:, obs[0]]
+    initial_loglikelihoods = log_mu + log_O.logllhood(obs[0])
 
     state_loglikelihoods, loglikelihood_sequence = lax.scan(
         loop_body,

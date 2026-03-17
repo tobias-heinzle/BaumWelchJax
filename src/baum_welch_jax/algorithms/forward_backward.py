@@ -47,8 +47,9 @@ def forward_backward(
     :rtype: ForwardBackwardResult
     '''
 
-    if not jnp.issubdtype(obs.dtype, jnp.integer):
-        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
+    
+    if not hmm.O.check_obs_compatibility(obs):
+        raise ValueError(f'obs is not compatible with the chosen observation model! obs.dtype = {obs.dtype}')
 
     obs, mu = standardize_shapes(obs, hmm)
 
