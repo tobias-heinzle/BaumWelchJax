@@ -1,7 +1,4 @@
-import functools
-
 import jax
-from jax.random import key, split, uniform
 import jax.numpy as jnp
 
 import pytest

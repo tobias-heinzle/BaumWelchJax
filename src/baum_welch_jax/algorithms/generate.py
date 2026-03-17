@@ -49,13 +49,12 @@ def _generate_sequence_impl(key: Array, T: Array, O: ObservationModel, mu: Array
 
     p_samples = jax.random.uniform(sampling_key, (length, 2))
 
-    # obs_cdf = jnp.cumsum(O, axis=-1)
     trans_cdf = jnp.cumsum(T, axis=-1)
 
     def step(state, p_samples):
         p_obs, p_state = p_samples
 
-        observation = O.simulate(state, p_obs)#jnp.argmax(obs_cdf[state] >= p_obs)
+        observation = O.simulate(state, p_obs)
         next_state = jnp.argmax(trans_cdf[state] >= p_state)
 
         return next_state, (state, observation)
