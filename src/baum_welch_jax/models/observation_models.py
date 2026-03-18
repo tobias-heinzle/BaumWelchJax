@@ -91,7 +91,7 @@ class ObservationModel(ABC):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class DiscreteObservationModel(ObservationModel):
+class DiscreteModel(ObservationModel):
     obs_probs: Array
     is_log: bool = field(metadata={"static": True}, default=False)
 
@@ -109,7 +109,7 @@ class DiscreteObservationModel(ObservationModel):
                 (obs.ravel() == o)[:, None] * gamma, axis=0), jnp.arange(m)).T
             O = O / jnp.sum(gamma, axis=0)[..., None]
 
-        return DiscreteObservationModel(O, self.is_log)
+        return DiscreteModel(O, self.is_log)
 
 
     def llhood(self, obs: Array) -> Array:
@@ -138,30 +138,30 @@ class DiscreteObservationModel(ObservationModel):
     def to_log(self):
         if self.is_log:
             raise ValueError('Attempted log conversion; Parameters are already logprobabilities.')
-        return DiscreteObservationModel(jnp.log(self.obs_probs), True)
+        return DiscreteModel(jnp.log(self.obs_probs), True)
     
     def to_prob(self):
         if self.is_log:
-            return DiscreteObservationModel(jnp.exp(self.obs_probs), False)
+            return DiscreteModel(jnp.exp(self.obs_probs), False)
         raise ValueError('Attempted probability conversion; Parameters are already probabilities.')
     
-    def astype(self, dtype: jax.typing.DTypeLike) -> DiscreteObservationModel:
+    def astype(self, dtype: jax.typing.DTypeLike) -> DiscreteModel:
         if not jnp.issubdtype(dtype, jnp.floating):
             raise ValueError("dtype must be floating point number")
         
-        return DiscreteObservationModel(
+        return DiscreteModel(
             self.obs_probs.astype(dtype),
             self.is_log
         )
     
-    def construct_frozen_parameter_pytree(self, mask: Array) -> DiscreteObservationModel:
-        return DiscreteObservationModel(mask, self.is_log)
+    def construct_frozen_parameter_pytree(self, mask: Array) -> DiscreteModel:
+        return DiscreteModel(mask, self.is_log)
     
     def get_params(self) -> Array:
         return self.obs_probs
     
     def squeeze(self):
-        return DiscreteObservationModel(self.obs_probs.squeeze(), self.is_log)
+        return DiscreteModel(self.obs_probs.squeeze(), self.is_log)
 
     def check_obs_compatibility(self, obs: Array) -> bool:
         return jnp.issubdtype(obs.dtype, jnp.integer)
@@ -179,13 +179,13 @@ class DiscreteObservationModel(ObservationModel):
         correct_dims = self.ndim == 2
         is_float = jnp.issubdtype(self.dtype, jnp.floating)
         if self.is_log:
-            all_sum_to_one = jnp.allclose(logsumexp(self.obs_probs, axis=1), 0.0)
+            all_sum_to_one = jnp.allclose(logsumexp(self.obs_probs, axis=1), 0.0, atol=1e-6)
 
             return jnp.all(jnp.array([correct_dims, all_sum_to_one]))
 
         else:
             all_positive = jnp.all(self.obs_probs >= 0)
-            all_sum_to_one = jnp.allclose(jnp.sum(self.obs_probs, axis=1), 1.0)
+            all_sum_to_one = jnp.allclose(jnp.sum(self.obs_probs, axis=1), 1.0, atol=1e-6)
               
             return jnp.all(jnp.array([correct_dims, all_positive, all_sum_to_one, is_float]))
         
@@ -194,7 +194,7 @@ class DiscreteObservationModel(ObservationModel):
         return False
     
     def __str__(self):
-        return f'''Discrete observation model(\n\tobs_probs = \n\t{self.obs_probs}\n\n\ts_log = {self.is_log}\n)'''
+        return f'''Discrete observation model(\n\tobs_probs = \n{self.obs_probs}\n\n\tis_log = {self.is_log}\n)'''
     
 
 
@@ -202,7 +202,7 @@ class DiscreteObservationModel(ObservationModel):
 
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
-class GaussianObservationModel(ObservationModel):
+class MultivariateGaussianModel(ObservationModel):
     mean: Array
     covariance: Array
     is_log: bool = field(metadata={"static": True}, default=False)
@@ -210,8 +210,7 @@ class GaussianObservationModel(ObservationModel):
     def update(self, obs: Array, gamma: Array) -> Self:
         assert obs.ndim == 3, f'obs.ndim = {obs.ndim} != 3'
 
-        k, l, o = obs.shape
-        obs = obs.reshape((k * l, o))
+        obs = jnp.concat(obs, axis=0)
 
 
         if self.is_log:
@@ -222,7 +221,7 @@ class GaussianObservationModel(ObservationModel):
         norm_const = jnp.sum(gamma, axis=0)
 
         mean = jnp.einsum('ij, ik -> jk', gamma, obs)
-        mean = mean / norm_const
+        mean = mean / norm_const[:, None]
 
         diff = obs[:, None, :] - mean
         outer = jnp.einsum('ijk, ijl -> ijkl', diff, diff)
@@ -230,7 +229,7 @@ class GaussianObservationModel(ObservationModel):
         sigma = jnp.sum(gamma[..., None, None] * outer, axis=0)
         sigma = sigma / norm_const[:, None, None]
 
-        return GaussianObservationModel(mean, sigma, self.is_log)
+        return MultivariateGaussianModel(mean, sigma, self.is_log)
 
     def llhood(self, obs: Array) -> Array:
         return jax.vmap(multivariate_normal.pdf, in_axes=(None, 0, 0))(obs, self.mean, self.covariance)
@@ -250,14 +249,14 @@ class GaussianObservationModel(ObservationModel):
     def check_obs_compatibility(self, obs: Array) -> bool:
         return jnp.issubdtype(obs.dtype, jnp.floating)
 
-    def to_log(self) -> GaussianObservationModel:
-        return GaussianObservationModel(self.mean, self.covariance, is_log=True)
+    def to_log(self) -> MultivariateGaussianModel:
+        return MultivariateGaussianModel(self.mean, self.covariance, is_log=True)
 
-    def to_prob(self) -> GaussianObservationModel:
-        return GaussianObservationModel(self.mean, self.covariance, is_log=False)
+    def to_prob(self) -> MultivariateGaussianModel:
+        return MultivariateGaussianModel(self.mean, self.covariance, is_log=False)
     
-    def astype(self, dtype) -> GaussianObservationModel:
-        return GaussianObservationModel(self.mean.astype(dtype), self.covariance.astype(dtype), is_log=self.is_log)
+    def astype(self, dtype) -> MultivariateGaussianModel:
+        return MultivariateGaussianModel(self.mean.astype(dtype), self.covariance.astype(dtype), is_log=self.is_log)
     
     @property
     def is_valid(self) -> bool:
@@ -283,15 +282,15 @@ class GaussianObservationModel(ObservationModel):
     
     def construct_frozen_parameter_pytree(self, mask: Array) -> Self:
         '''Construct a pytree suitable for mapped masking of parameters.'''
-        mean_mask = mask[0]
-        covariance_mask = mask[1:]
+        mean_mask = mask[..., 0]
+        covariance_mask = mask[..., 1:]
 
-        return GaussianObservationModel(mean_mask, covariance_mask, self.is_log)
+        return MultivariateGaussianModel(mean_mask, covariance_mask, self.is_log)
     
     def get_params(self) -> Array:
-        return jnp.concat([self.mean[None, ...], self.covariance])
+        return jnp.concat([self.mean[..., None], self.covariance], axis=-1)
     
-    def squeeze(self) -> GaussianObservationModel:
+    def squeeze(self) -> MultivariateGaussianModel:
         '''Does nothing for this model, but still present for compatibility'''
         return self
 

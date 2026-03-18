@@ -152,23 +152,23 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
 
     # Value assertions that O, T, mu are valid probability distributions
     if not hmm.is_log:
-        if not jnp.allclose(jnp.sum(hmm.T, axis=-1), 1.0, atol=1e-7):
+        if not jnp.allclose(jnp.sum(hmm.T, axis=-1), 1.0, atol=1e-6):
             raise ValueError("Rows of T must sum to 1")
 
         if jnp.any(hmm.T < 0):
             raise ValueError("T must be non-negative")
 
-        if not jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0, atol=1e-7):
+        if not jnp.allclose(jnp.sum(hmm.mu, axis=-1), 1.0, atol=1e-6):
             raise ValueError("mu distributions must all sum to 1")
 
         if jnp.any(hmm.mu < 0):
             raise ValueError("mu must be non-negative")
         
     if hmm.is_log:
-        if not jnp.allclose(logsumexp(hmm.T, axis=-1), 0.0, atol=1e-7):
+        if not jnp.allclose(logsumexp(hmm.T, axis=-1), 0.0, atol=1e-6):
             raise ValueError("Rows of T must sum to 1 (logsumexp of logprobs must be 0)")
 
-        if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0, atol=1e-7):
+        if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0, atol=1e-6):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
 
 

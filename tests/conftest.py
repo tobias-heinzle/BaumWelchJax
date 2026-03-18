@@ -1,11 +1,11 @@
 
 import jax.numpy as jnp
 
-from baum_welch_jax.models import HiddenMarkovParameters, DiscreteObservationModel
+from baum_welch_jax.models import HiddenMarkovParameters, DiscreteModel
 
 HMM_TRIVIAL = HiddenMarkovParameters(
     T=jnp.eye(5, dtype=jnp.float32),
-    O=DiscreteObservationModel(jnp.eye(5, dtype=jnp.float32)),
+    O=DiscreteModel(jnp.eye(5, dtype=jnp.float32)),
     mu=jnp.ones(5, dtype=jnp.float32) / 5,
     is_log=False)
 
@@ -32,7 +32,7 @@ O_TEST = jnp.array([
 	[0.2132723459115592, 0.5360110824786332, 0.2507165716098077]
 ], jnp.float32)
 
-HMM_TEST = HiddenMarkovParameters(T=T_TEST, O=DiscreteObservationModel(O_TEST), mu=MU_TEST)
+HMM_TEST = HiddenMarkovParameters(T=T_TEST, O=DiscreteModel(O_TEST), mu=MU_TEST)
 
 # These test values below were computed based on 2_000_000 sequences of length 5,
 # sampled with the above parameters
@@ -1066,7 +1066,7 @@ O_TEST_STRUCTURED = jnp.array([
 
 HMM_TEST_STRUCTURED = HiddenMarkovParameters(
     T=T_TEST_STRUCTURED, 
-    O=DiscreteObservationModel(O_TEST_STRUCTURED), 
+    O=DiscreteModel(O_TEST_STRUCTURED), 
     mu=MU_TEST_STRUCTURED)
 
 OBS_DISTR_STRUCTURED_100_STEPS = jnp.array([
@@ -1988,7 +1988,7 @@ HMM_TEST_REAL_DATA = HiddenMarkovParameters(
             [0.0, 0.0, 0.598578929901123, 0.40142104029655457],
             [0.0, 0.0, 0.0, 1.0]]
             ), 
-        O=DiscreteObservationModel(
+        O=DiscreteModel(
             jnp.array([
 				[0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],
 				[0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.   ],

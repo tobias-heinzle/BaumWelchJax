@@ -235,7 +235,7 @@ def test_fwd_bwd_multiple_mu_6_steps():
 	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
 	hmm = HiddenMarkovParameters(
 		T_TEST, 
-		DiscreteObservationModel(O_TEST), 
+		DiscreteModel(O_TEST), 
 		jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
 
 	gamma, xi = forward_backward(
@@ -252,7 +252,7 @@ def test_fwd_bwd_multiple_mu_log_6_steps():
 	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
 	hmm = HiddenMarkovParameters(
 		T_TEST, 
-		DiscreteObservationModel(O_TEST), 
+		DiscreteModel(O_TEST), 
 		jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
 	
 	gamma_log, xi_log = forward_backward(
