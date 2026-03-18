@@ -8,7 +8,8 @@ import pytest
 
 from baum_welch_jax import PrecisionWarning
 from baum_welch_jax.algorithms import baum_welch, generate_sequence
-from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks
+from baum_welch_jax.models import HiddenMarkovParameters, assert_valid_hmm, FreezeConfig, FreezeMasks, DiscreteModel
+from baum_welch_jax.models.observation_models import MultivariateGaussianModel
 from baum_welch_jax.util import normalize_rows
 
 from conftest import *
@@ -33,11 +34,11 @@ def test_trivial_inference(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8]))
 
     _, obs = generate_sequence(key(0), hmm, 500)
@@ -49,7 +50,7 @@ def test_trivial_inference(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.05)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.001)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.001)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.00001)
 
 @pytest.mark.parametrize('epsilon', [1e-6, 1e-7, 1e-8, 1e-9, 1e-10])
@@ -59,11 +60,11 @@ def test_precision(mode, epsilon):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8]))
 
     _, obs = generate_sequence(key(0), hmm, 500)
@@ -94,12 +95,12 @@ def test_long_sequence(mode):
         [0.0, 0.0, 0.0, 0.0, 1.0]
     ])
     mu = jnp.array([0.0, 0.0, 0.0, 0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
     assert_valid_hmm(hmm)
 
     init_guess = HiddenMarkovParameters(
         normalize_rows(T + 0.25 * jax.random.uniform(key(0), shape=(5,5))), 
-        normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5))), 
+        DiscreteModel(normalize_rows(O + 0.25 * jax.random.uniform(key(1), shape=(5,5)))), 
         normalize_rows(jnp.ones(5)))
     assert_valid_hmm(init_guess)
     
@@ -111,7 +112,7 @@ def test_long_sequence(mode):
     assert not result.terminated
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE), f'{result.iterations} iterations'
     assert jnp.allclose(res_params.T, hmm.T, atol=0.02), f'{result.iterations} iterations, T max error: {jnp.max(jnp.abs(res_params.T - hmm.T))}'
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.02), f'{result.iterations} iterations, O max error: {jnp.max(jnp.abs(res_params.O - hmm.O))}'
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.02), f'{result.iterations} iterations, O max error: {jnp.max(jnp.abs(res_params.O - hmm.O))}'
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.0001), f'{result.iterations} iterations, mu max error: {jnp.max(jnp.abs(res_params.mu - hmm.mu))}'
 
 
@@ -124,10 +125,10 @@ def test_mutli_sequence(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([0.0, 1.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteModel(jnp.ones((2,2)) / 2), 
         jnp.array([0.2,0.8])
         )
 
@@ -140,7 +141,7 @@ def test_mutli_sequence(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -152,10 +153,10 @@ def test_mutli_sequence_multi_mu(mode):
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
     O = jnp.eye(2)
     mu = jnp.array([[k % 2, (k + 1) % 2] for k in range(n_seq)])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
     init_guess = HiddenMarkovParameters(
         jnp.ones((2,2)) / 2, 
-        jnp.ones((2,2)) / 2, 
+        DiscreteModel(jnp.ones((2,2)) / 2), 
         jnp.array([[0.49,0.51], [0.51, 0.49]] * (n_seq // 2))
         )
 
@@ -168,7 +169,7 @@ def test_mutli_sequence_multi_mu(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -178,12 +179,12 @@ def test_mutli_sequence_multi_mu_informed_parameters(mode):
     n_seq = 50
 
     T = jnp.array([[0.9, 0.1], [0.1,0.9]])
-    O = jnp.eye(2)
+    O = DiscreteModel(jnp.eye(2))
     mu = jnp.array([[k % 2, (k + 1) % 2] for k in range(n_seq)])
     hmm = HiddenMarkovParameters(T, O, mu)
     init_guess = HiddenMarkovParameters(
         jnp.array([[0.8, 0.2], [0.2,0.8]]), 
-        jnp.array([[0.8, 0.2], [0.2,0.8]]),
+        DiscreteModel(jnp.array([[0.8, 0.2], [0.2,0.8]])),
         jnp.ones((n_seq, 2)) / 2
         )
 
@@ -196,7 +197,7 @@ def test_mutli_sequence_multi_mu_informed_parameters(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, hmm.T, atol=0.01)
-    assert jnp.allclose(res_params.O, hmm.O, atol=0.005)
+    assert jnp.allclose(res_params.O.get_params(), hmm.O.get_params(), atol=0.005)
     assert jnp.allclose(res_params.mu, hmm.mu, atol=0.000005)
 
 @pytest.mark.slow
@@ -207,13 +208,13 @@ def test_observation_probabilities_structured(mode):
     n_seq = 1000
     seq_keys = split(key(123), n_seq)
 
-    n, m = HMM_TEST_STRUCTURED.O.shape
+    n, m = HMM_TEST_STRUCTURED.O.get_params().shape
     
     O_guess = (jnp.ones((n,m)) / m).at[-1].set(jnp.zeros(m).at[-1].set(1.0))
     mu_guess = jnp.zeros(n).at[0].set(1.0)
     init_guess = HiddenMarkovParameters(
         jnp.ones((n,n)) / n, 
-        O_guess, 
+        DiscreteModel(O_guess), 
         mu_guess)
 
     _, reference_obs = jax.vmap(lambda _k: generate_sequence(_k, HMM_TEST_STRUCTURED, 100))(jnp.array(seq_keys))
@@ -252,11 +253,11 @@ def test_observation_probabilities_random(mode, seed, m, n):
     O = O / jnp.sum(O, axis=1)[..., None]
     mu = mu / jnp.sum(mu)
 
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
 
     init_guess = HiddenMarkovParameters(
         jnp.ones_like(T) / n, 
-        jnp.ones_like(O) / m, 
+        DiscreteModel(jnp.ones_like(O) / m), 
         jnp.ones_like(mu) / n)
 
     _, obs = jax.vmap(lambda _k: generate_sequence(_k, hmm, 500))(jnp.array(seq_keys))
@@ -304,7 +305,7 @@ def test_structured_learning(mode):
     _T = _T / jnp.sum(_T, axis=1)[:, None]
     _O = _O / jnp.sum(_O, axis=1)[:, None]
     _mu = _mu / jnp.sum(_mu)
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteModel(_O), _mu)
 
 
     # Run the algorithm
@@ -316,7 +317,7 @@ def test_structured_learning(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, T_TEST_STRUCTURED, atol=0.01)
-    assert jnp.allclose(res_params.O, O_TEST_STRUCTURED, atol=0.025)
+    assert jnp.allclose(res_params.O.get_params(), O_TEST_STRUCTURED, atol=0.025)
     assert jnp.allclose(res_params.mu, MU_TEST_STRUCTURED, atol= 0.07)
 
 
@@ -354,7 +355,7 @@ def test_structured_learning_different_mu(mode):
     _T = _T / jnp.sum(_T, axis=1)[:, None]
     _O = _O / jnp.sum(_O, axis=1)[:, None]
     _mu = _mu / jnp.sum(_mu, axis=1)[:, None]
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteModel(_O), _mu)
 
 
     # Run the algorithm
@@ -372,7 +373,7 @@ def test_structured_learning_different_mu(mode):
     assert result.iterations > 5
     assert jnp.all(jnp.diff(result.log_likelihoods[:result.iterations]) >= MONOTONICITY_TOLERANCE)
     assert jnp.allclose(res_params.T, T_TEST_STRUCTURED, atol=0.01)
-    assert jnp.allclose(res_params.O, O_TEST_STRUCTURED, atol=0.025)
+    assert jnp.allclose(res_params.O.get_params(), O_TEST_STRUCTURED, atol=0.025)
     assert jnp.mean(correct_mu_estimates) > 0.8 # Correctly identified more than 80% of the mu values
 
 
@@ -403,7 +404,7 @@ def test_likelihood_lower_bound_increase(mode):
     _T = _T / jnp.sum(_T, axis=1, keepdims=True)
     _O = _O / jnp.sum(_O, axis=1, keepdims=True)
     _mu = _mu / jnp.sum(_mu)
-    init_guess = HiddenMarkovParameters(_T, _O, _mu)
+    init_guess = HiddenMarkovParameters(_T, DiscreteModel(_O), _mu)
 
 
     # Run the algorithm
@@ -433,7 +434,7 @@ def test_multiple_sequence_8_states(mode):
         mode=mode)
 
     assert not jnp.any(jnp.isnan(result.params.mu)), jnp.exp(result.params.mu)
-    assert not jnp.any(jnp.isnan(result.params.O)), result.params.O
+    assert not jnp.any(jnp.isnan(result.params.O.get_params())), result.params.O
     assert not jnp.any(jnp.isnan(result.params.T)), jnp.exp(result.params.T)
     assert not result.terminated
 
@@ -446,10 +447,10 @@ def test_multiple_sequence_8_states(mode):
 ])
 @enable_x64
 def test_freeze_config(mode, freeze_config):
-    n, m = HMM_TEST.O.shape
+    n, m = HMM_TEST.O.get_params().shape
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (n, n))), 
-        normalize_rows(jax.random.uniform(key(1), (n, m))), 
+        DiscreteModel(normalize_rows(jax.random.uniform(key(1), (n, m)))), 
         normalize_rows(jax.random.uniform(key(2), (n, ))),
     ).astype(jnp.float64)
     
@@ -468,9 +469,9 @@ def test_freeze_config(mode, freeze_config):
     else:
         assert not jnp.allclose(result.T, hmm.T)
     if freeze_config.O:
-        assert jnp.allclose(result.O, hmm.O)
+        assert jnp.allclose(result.O.get_params(), hmm.O.get_params())
     else:
-        assert not jnp.allclose(result.O, hmm.O)
+        assert not jnp.allclose(result.O.get_params(), hmm.O.get_params())
     if freeze_config.mu:
         assert jnp.allclose(result.mu, hmm.mu)
     else:
@@ -482,7 +483,7 @@ def test_freeze_config(mode, freeze_config):
 def test_freeze_config_rows(mode):
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (2, 2))), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     freeze_masks = FreezeMasks(
         T = jnp.array([[True, True], [False, False]]),
@@ -505,8 +506,8 @@ def test_freeze_config_rows(mode):
     assert_valid_hmm(result)
     assert jnp.allclose(result.T[0], hmm.T[0])
     assert not jnp.allclose(result.T[1], hmm.T[1])
-    assert jnp.allclose(result.O[1], hmm.O[1])
-    assert not jnp.allclose(result.O[0], hmm.O[0])
+    assert jnp.allclose(result.O.get_params()[1], hmm.O.get_params()[1])
+    assert not jnp.allclose(result.O.get_params()[0], hmm.O.get_params()[0])
     assert jnp.allclose(result.mu, hmm.mu)
 
 @pytest.mark.parametrize('mode', ['regular', 'log'])
@@ -515,7 +516,7 @@ def test_freeze_config_rows(mode):
 def test_freeze_config_error(mode, param):
     hmm = HiddenMarkovParameters(
         normalize_rows(jax.random.uniform(key(0), (2, 2))), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     
     T = jnp.array([[True, True], [False, False]])
@@ -546,10 +547,10 @@ def test_freeze_config_error(mode, param):
 
 @pytest.mark.parametrize('mode', ['regular', 'log'])
 @enable_x64
-def test_input_validation(mode):
+def test_input_validation_T(mode):
     hmm = HiddenMarkovParameters(
         jax.random.uniform(key(0), (2, 2)), 
-        normalize_rows(jax.random.uniform(key(1), (2, 2))), 
+        DiscreteModel(normalize_rows(jax.random.uniform(key(1), (2, 2)))), 
         normalize_rows(jax.random.uniform(key(2), (2, ))))
     
     with pytest.raises(ValueError):
@@ -557,4 +558,173 @@ def test_input_validation(mode):
             jnp.array([0,1]).astype(jnp.int32), 
             hmm, 
             max_iter=5, 
-            mode=mode, )
+            mode=mode)
+   
+@enable_x64
+def test_gaussian_observation_model_random():
+    # Set up the ground truth model
+    cov = jax.random.uniform(jax.random.key(0), (3, 3))
+    cov = jnp.einsum('ij,kj -> jik', cov, cov) + jnp.eye(3)[None, ...]
+    mean = jax.random.uniform(jax.random.key(4), (3,3),minval=-1, maxval=1)
+    T = jnp.eye(3) * 0.97 + jnp.ones((3,3)) * 0.01
+    mu = jnp.zeros(3)
+    mu = mu.at[0].set(1.0)
+    hmm = HiddenMarkovParameters(T, MultivariateGaussianModel(mean, cov), mu)
+
+    # Simulate some data
+    _, obs = generate_sequence(jax.random.key(0), hmm, 5000)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = mean + 0.3 * jax.random.uniform(jax.random.key(10),(3,3))
+    G_init = MultivariateGaussianModel(mean_init, jnp.eye(3,3)[None, ...].repeat(3, axis=0))
+    init_hmm = HiddenMarkovParameters(T, G_init, mu)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+
+    # General bound on the tolerance
+    assert jnp.allclose(mean, res.params.O.mean, atol=.2)
+    assert jnp.allclose(cov, res.params.O.covariance, rtol=.3)
+    
+    # At most one entry with more than 10 percent error
+    assert jnp.sum(~jnp.isclose(cov, res.params.O.covariance, atol=.1)) <= 1
+
+
+       
+@enable_x64
+def test_gaussian_observation_model_easy():
+    # Set up the ground truth model
+    cov =  jnp.eye(2)[None, ...].repeat(2, axis=0)
+    mean = jnp.array([[10, 10],[-10, -10]])
+    T = jnp.eye(2) * 0.8 + jnp.ones((2,2)) * 0.1
+    mu = jnp.zeros(2)
+    mu = mu.at[0].set(1.0)
+    hmm = HiddenMarkovParameters(T, MultivariateGaussianModel(mean, cov), mu)
+
+    # Simulate some data
+    n_seq = 5
+    keys = jax.random.split(jax.random.key(0), n_seq)
+    _, obs = jax.vmap(generate_sequence, in_axes=(0,None, None))(keys, hmm, 200)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = jnp.zeros((2, 2))
+    cov_init = jnp.array([[[2.0, -0.6], [-0.6, 2.0]]]).repeat(2, axis=0)
+    T_init = jnp.array([[0.6, 0.4], [0.3, 0.7]])
+    mu_init = jnp.array([0.9, 0.1])
+    G_init = MultivariateGaussianModel(mean_init, cov_init)
+    init_hmm = HiddenMarkovParameters(T_init, G_init, mu_init)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+    params = res.params.to_prob()
+
+    # General bound on the tolerance
+    assert jnp.allclose(T, params.T, atol=0.05)
+    assert jnp.allclose(mu, params.mu, atol=0.001)
+    assert jnp.allclose(mean, params.O.mean, atol=1.0)
+    assert jnp.allclose(cov, params.O.covariance, atol=.45)
+    
+@enable_x64
+def test_gaussian_observation_model_medium():
+    # Set up the ground truth model
+    cov =  jnp.eye(2)[None, ...].repeat(2, axis=0)
+    mean = jnp.array([[1, 1],[-1, -1]])
+    T = jnp.eye(2) * 0.8 + jnp.ones((2,2)) * 0.1
+    mu = jnp.zeros(2)
+    mu = mu.at[0].set(1.0)
+    hmm = HiddenMarkovParameters(T, MultivariateGaussianModel(mean, cov), mu)
+
+    # Simulate some data
+    n_seq = 5
+    keys = jax.random.split(jax.random.key(0), n_seq)
+    _, obs = jax.vmap(generate_sequence, in_axes=(0,None, None))(keys, hmm, 200)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = jnp.zeros((2, 2))
+    cov_init = jnp.array([[[2.0, -0.6], [-0.6, 2.0]]]).repeat(2, axis=0)
+    T_init = jnp.array([[0.6, 0.4], [0.3, 0.7]])
+    mu_init = jnp.array([0.9, 0.1])
+    G_init = MultivariateGaussianModel(mean_init, cov_init)
+    init_hmm = HiddenMarkovParameters(T_init, G_init, mu_init)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+    params = res.params.to_prob()
+
+    # General bound on the tolerance
+    assert jnp.allclose(T, params.T, atol=0.05)
+    assert jnp.allclose(mu, params.mu, atol=0.001)
+    assert jnp.allclose(mean, params.O.mean, atol=0.1)
+    assert jnp.allclose(cov, params.O.covariance, atol=.25)
+
+@enable_x64
+def test_gaussian_observation_model_covariance():
+    # Set up the ground truth model
+    cov =  jnp.array([[[1.0, 0.9],[0.9, 1.0]], [[1.0, -0.9],[-0.9, 1.0]]])
+    mean = jnp.zeros((2,2))
+    T = jnp.eye(2) * 0.8 + jnp.ones((2,2)) * 0.1
+    mu = jnp.zeros(2)
+    mu = mu.at[0].set(1.0)
+    hmm = HiddenMarkovParameters(T, MultivariateGaussianModel(mean, cov), mu)
+
+    # Simulate some data
+    n_seq = 5
+    keys = jax.random.split(jax.random.key(0), n_seq)
+    _, obs = jax.vmap(generate_sequence, in_axes=(0,None, None))(keys, hmm, 200)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = jnp.zeros((2, 2))
+    cov_init = jnp.array([[[1.0, 0.1],[0.1, 1.0]], [[1.0, -0.1],[-0.1, 1.0]]])
+    T_init = jnp.array([[0.6, 0.4], [0.3, 0.7]])
+    mu_init = jnp.array([0.9, 0.1])
+    G_init = MultivariateGaussianModel(mean_init, cov_init)
+    init_hmm = HiddenMarkovParameters(T_init, G_init, mu_init)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+    params = res.params.to_prob()
+
+    # General bound on the tolerance
+    assert jnp.allclose(T, params.T, atol=0.05)
+    assert jnp.allclose(mu, params.mu, atol=0.001)
+    assert jnp.allclose(mean, params.O.mean, atol=0.1)
+    assert jnp.allclose(cov, params.O.covariance, atol=.1)
+
+
+@enable_x64
+def test_gaussian_observation_model_jumping():
+    # Set up the ground truth model
+    mean = jnp.array([[2.0, 2.0], [-2.0, 2.0], [-2.0, -2.0], [2.0, -2.0]])
+    cov = jnp.eye(2)[None, ...].repeat(4, axis=0)
+    T = jnp.array([
+        [0.1, 0.9, 0.0, 0.0], 
+        [0.0, 0.1, 0.9, 0.0], 
+        [0.0, 0.0, 0.1, 0.9], 
+        [0.9, 0.0, 0.0, 0.1]])
+    mu = jnp.array([0.25, 0.25, 0.25, 0.25])
+    G = MultivariateGaussianModel(mean, cov)
+
+    hmm = HiddenMarkovParameters(T, G, mu)
+
+    # Simulate some data
+    n_seq = 10
+    keys = jax.random.split(jax.random.key(0), n_seq)
+    _, obs = jax.vmap(generate_sequence, in_axes=(0,None, None))(keys, hmm, 200)
+
+    # Set up the initial parameters, only the observation model is incorrect
+    mean_init = jnp.array([[1.0, 1.0], [-1.0, 1.0], [-1.0, -1.0], [0.0, -5.0]])
+    cov_init = jnp.eye(2)[None, ...].repeat(4, axis=0) + jnp.full((4, 2, 2), 0.5)
+    T_init = jnp.full((4,4), 0.25)
+    mu_init = jnp.array([0.25, 0.25, 0.25, 0.25])
+    G_init = MultivariateGaussianModel(mean_init, cov_init)
+    init_hmm = HiddenMarkovParameters(T_init, G_init, mu_init)
+
+    # Now test
+    res = baum_welch(obs, init_hmm)
+    params = res.params.to_prob()
+
+    # General bound on the tolerance
+    assert jnp.allclose(T, params.T, atol=0.05)
+    assert jnp.allclose(mu, params.mu, atol=0.2)
+    assert jnp.allclose(mean, params.O.mean, atol=0.1)
+    assert jnp.allclose(cov, params.O.covariance, atol=.15), params.O.covariance

@@ -7,7 +7,7 @@ The code is intentionally minimal and written for readability, with a small numb
 
 Features and limitations:
 
-- Discrete-state, discrete-emission HMMs only.
+- Discrete-state HMMs, with discrete or multivariate Gaussian emissions.
 - Forward–Backward algorithm for both regular and log probabilities.
 - Baum–Welch (EM) implementation both in probability and log-probability space.
 - Option to freeze rows of the transition or emission matrices during inference.
@@ -36,6 +36,7 @@ import jax.numpy as jnp
 
 from baum_welch_jax import (
     HiddenMarkovParameters, 
+    DiscreteModel,
     baum_welch,
     generate_sequence,
 )
@@ -48,7 +49,9 @@ T = jnp.array([[0.6, 0.4], [0.1, 0.9]])
 O = jnp.array([[0.7, 0.3], [0.0, 1.0]])
 mu = jnp.array([1.0, 0.0])
 
-hmm = HiddenMarkovParameters(T, O, mu)
+obs_model = DiscreteModel(O)
+
+hmm = HiddenMarkovParameters(T, obs_model, mu)
 
 # Generating a sequence
 states, observations = generate_sequence(jax.random.key(0), hmm, length=100)
@@ -56,7 +59,7 @@ states, observations = generate_sequence(jax.random.key(0), hmm, length=100)
 # Estimating model parameters
 initial_guess = HiddenMarkovParameters(
     jnp.array([[0.51, 0.49], [0.49, 0.51]]), 
-    jnp.array([[0.51, 0.49], [0.49, 0.51]]), 
+    DiscreteModel(jnp.array([[0.51, 0.49], [0.49, 0.51]])), 
     jnp.ones_like(mu) / 2)
     
 # Run Baum–Welch until convergence

@@ -2,6 +2,7 @@
 
 from typing import Optional
 from baum_welch_jax.models.hmm import HiddenMarkovParameters
+from baum_welch_jax.models.observation_models import DiscreteModel
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
@@ -28,7 +29,8 @@ def plot_hmm_params(
         cmap: str='viridis',
         ax: Optional[np.array] = None
         ) -> tuple[Figure | None, np.ndarray[Axes]]:
-    n, m = hmm.O.shape
+    
+    n, m = hmm.O.get_params().shape
 
     cm = plt.colormaps[cmap]
 
@@ -57,7 +59,7 @@ def plot_hmm_params(
     ax[0].matshow(hmm.T, cmap=cmap)
     ax[0].set_title("T")
 
-    ax[1].matshow(hmm.O, cmap=cmap)
+    ax[1].matshow(hmm.O.get_params(), cmap=cmap)
     ax[1].set_title("O")
 
 
@@ -66,7 +68,7 @@ def plot_hmm_params(
         ax[2].set_title(r"$\mu$")
     
     if with_numbers:
-        for idx, mat in enumerate((hmm.T, hmm.O, hmm.mu)):
+        for idx, mat in enumerate((hmm.T, hmm.O.get_params(), hmm.mu)):
             if idx == 2 and not plot_mu:
                 break
             if not mat.ndim >= 2:

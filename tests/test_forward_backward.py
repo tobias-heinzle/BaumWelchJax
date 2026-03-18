@@ -194,7 +194,7 @@ def test_fwd_bwd_agreement_structured(obs):
 
 def test_fwd_bwd_shapes():
 	obs = jnp.zeros(10).astype(jnp.int32)
-	n, m = HMM_TEST_STRUCTURED.O.shape
+	n, _ = HMM_TEST_STRUCTURED.T.shape
 
 	gamma, xi = forward_backward(obs, HMM_TEST_STRUCTURED, mode='regular')
 	gamma_log, xi_log = forward_backward(obs, HMM_TEST_STRUCTURED, mode='log')
@@ -233,7 +233,10 @@ def test_fwd_bwd_multiple_mu_6_steps():
 	test_state_distr = jnp.array(STATE_DISTR_6_STEPS + STATE_DISTR_6_STEPS_DIFFERENT_MU)
 	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS + TRANSITION_TENSORS_TEST_6_STEPS_DIFFERENT_MU)
 	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
-	hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
+	hmm = HiddenMarkovParameters(
+		T_TEST, 
+		DiscreteModel(O_TEST), 
+		jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
 
 	gamma, xi = forward_backward(
 		jnp.array(TEST_SEQUENCES_6_STEPS + TEST_SEQUENCES_6_STEPS_DIFFERENT_MU), hmm, mode='regular')
@@ -247,7 +250,10 @@ def test_fwd_bwd_multiple_mu_log_6_steps():
 	test_state_distr = jnp.array(STATE_DISTR_6_STEPS + STATE_DISTR_6_STEPS_DIFFERENT_MU)
 	test_transitions = jnp.array(TRANSITION_TENSORS_TEST_6_STEPS + TRANSITION_TENSORS_TEST_6_STEPS_DIFFERENT_MU)
 	k, l = (len(STATE_DISTR_6_STEPS), len(STATE_DISTR_6_STEPS_DIFFERENT_MU))
-	hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
+	hmm = HiddenMarkovParameters(
+		T_TEST, 
+		DiscreteModel(O_TEST), 
+		jnp.array([MU_TEST] * k + [MU_TEST_DIFFERENT] * l))
 	
 	gamma_log, xi_log = forward_backward(
 		jnp.array(TEST_SEQUENCES_6_STEPS + TEST_SEQUENCES_6_STEPS_DIFFERENT_MU), hmm, mode='log')

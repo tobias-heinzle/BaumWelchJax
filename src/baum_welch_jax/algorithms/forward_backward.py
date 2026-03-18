@@ -8,7 +8,7 @@ from jax.scipy.special import logsumexp
 from jax import Array
 
 from ..util import wrapped_jit, normalize_rows, standardize_shapes
-from ..models import HiddenMarkovParameters
+from ..models import HiddenMarkovParameters, ObservationModel
 
 class ForwardBackwardResult(NamedTuple):
     '''
@@ -47,8 +47,9 @@ def forward_backward(
     :rtype: ForwardBackwardResult
     '''
 
-    if not jnp.issubdtype(obs.dtype, jnp.integer):
-        raise ValueError(f'obs must be 1D vector of integers! obs.dtype = {obs.dtype}')
+    
+    if not hmm.O.check_obs_compatibility(obs):
+        raise ValueError(f'obs is not compatible with the chosen observation model! obs.dtype = {obs.dtype}')
 
     obs, mu = standardize_shapes(obs, hmm)
 
@@ -76,14 +77,14 @@ def forward_backward(
 def _forward_backward_impl(
     obs: Array, 
     T: Array, 
-    O: Array, 
+    O: ObservationModel, 
     mu: Array) -> tuple[Array, Array]:
 
     n = mu.shape[0]
     t_max = len(obs)
 
     # Initialize forward probabilities
-    alpha_0 = mu * O[:, obs[0]]
+    alpha_0 = mu * O.llhood(obs[0])
     alpha_0 = normalize_rows(alpha_0) 
 
     # Initialize backward probabilities
@@ -92,8 +93,8 @@ def _forward_backward_impl(
     def step(carry, t):
         alpha, beta = carry
 
-        alpha = (alpha @ T) * O[:, obs[t]]
-        beta = T @ (O[:, obs[t_max - t]] * beta)
+        alpha = (alpha @ T) * O.llhood(obs[t])
+        beta = T @ (O.llhood(obs[t_max - t]) * beta)
 
         alpha = normalize_rows(alpha) 
         beta = normalize_rows(beta)
@@ -119,7 +120,7 @@ def _forward_backward_impl(
 
     # Calculation of the xi tensor involves taking the outer product of alpha and O * beta
     # for each combination of alpha_t and beta_t+1
-    obs_probs = jnp.take(O, obs[1:], axis=1).T
+    obs_probs = jax.vmap(O.llhood)(obs[1:])
     xi = jnp.einsum("ij, ik->ijk", alpha[:-1], beta[1:] * obs_probs)
 
     # and then multiplying each slice componentwise with
@@ -133,14 +134,14 @@ def _forward_backward_impl(
 def _forward_backward_log_impl(
     obs: Array, 
     log_T: Array, 
-    log_O: Array, 
+    log_O: ObservationModel, 
     log_mu: Array) -> tuple[Array, Array]:
 
     n = log_mu.shape[0]
     t_max = len(obs)
 
     # Initialize forward probabilities
-    alpha_0 = log_mu + log_O[:, obs[0]]
+    alpha_0 = log_mu + log_O.logllhood(obs[0])
     alpha_0 = alpha_0 - logsumexp(alpha_0)
 
     # Initialize backward probabilities
@@ -150,10 +151,10 @@ def _forward_backward_log_impl(
         alpha, beta = carry
 
         alpha = logsumexp(
-            alpha[:, None] + log_T, axis=0) + log_O[:, obs[t]]
+            alpha[:, None] + log_T, axis=0) + log_O.logllhood(obs[t])
 
         beta = logsumexp(
-            log_T + (log_O[:, obs[t_max - t]] + beta)[None, :], 
+            log_T + (log_O.logllhood(obs[t_max - t]) + beta)[None, :], 
             axis=1)
 
         alpha = alpha - logsumexp(alpha)
@@ -182,7 +183,7 @@ def _forward_backward_log_impl(
     # for each combination of alpha_t and beta_t+1
     # This calculation changes a little bit in log space, the outer product multiplications
     # become an addition and the normalization a subtraction of the logsumexp
-    obs_logprobs = jnp.take(log_O, obs[1:], axis=1).T
+    obs_logprobs = jax.vmap(log_O.logllhood)(obs[1:])
 
     xi = alpha[:-1, :, None].repeat(n, axis=-1)
     xi += jnp.matrix_transpose(obs_logprobs[..., None].repeat(n, axis=-1))

@@ -8,11 +8,19 @@ from . import wrapped_jit
 @wrapped_jit()
 def standardize_shapes(obs: Array, hmm: HiddenMarkovParameters) -> tuple[Array, Array]:
     '''Standardize the shapes of `obs` and the initial state distributions `mu`
-    to contain a leading axis. Outputs are of shape `(k, l)` and `(k, n)`, where `k` is the
-    number of sequences, `l` is the length of the sequences and `n` is the number of states.'''
+    to contain a leading axis. 
     
-    parallel_mode = len(obs.shape) > 1
-    multiple_mu = len(hmm.mu.shape) > 1
+    If multiple observations are emitted per time step, outputs are of shape `obs.shape = (k, l, m)` 
+    and `mu.shape = (k, n)`, where `k` is the number of sequences, `l` is the length of the sequences, 
+    `m` is the number of observations per time step and `n` is the number of states.
+
+    If only a single observation is output per timestep, the final observation dimension is 
+    omitted, i.e. `obs.shape = (k, l)`
+    '''
+
+    
+    parallel_mode = obs.ndim > (2 if hmm.O.has_multiple_outputs else 1)
+    multiple_mu = hmm.mu.ndim > 1
 
     if multiple_mu and (not parallel_mode):
         raise ValueError('Multiple mu distributions provided, but only a single obs sequence!')

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..util import wrapped_jit
-from ..models import HiddenMarkovParameters
+from ..models import HiddenMarkovParameters, ObservationModel
 
 
 @wrapped_jit(static_argnames="length")
@@ -41,21 +41,20 @@ def generate_sequence(
     return states.squeeze(), observations.squeeze()
 
 @wrapped_jit(static_argnames="length")
-def _generate_sequence_impl(key: Array, T: Array, O: Array, mu: Array, length: int):
-    n, _ = O.shape
+def _generate_sequence_impl(key: Array, T: Array, O: ObservationModel, mu: Array, length: int):
+    n, _ = T.shape
 
     initial_key, sampling_key = jax.random.split(key)
     initial_state = jax.random.choice(initial_key, n, p=mu)
 
     p_samples = jax.random.uniform(sampling_key, (length, 2))
 
-    obs_cdf = jnp.cumsum(O, axis=-1)
     trans_cdf = jnp.cumsum(T, axis=-1)
 
     def step(state, p_samples):
         p_obs, p_state = p_samples
 
-        observation = jnp.argmax(obs_cdf[state] >= p_obs)
+        observation = O.simulate(state, p_obs)
         next_state = jnp.argmax(trans_cdf[state] >= p_state)
 
         return next_state, (state, observation)

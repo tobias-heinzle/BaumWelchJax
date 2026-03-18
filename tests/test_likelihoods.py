@@ -24,7 +24,7 @@ def test_likelihood_sanity_check(initial_state, obs, likelihoods):
     O = jnp.eye(2)
     mu = jnp.zeros(2)
     mu = mu.at[initial_state].set(1.0)
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
 
     state_llhood, llhood_sequence = likelihood(obs, hmm, return_stats=True)
     llhood = likelihood(obs, hmm, return_stats=False)
@@ -48,7 +48,10 @@ def test_log_likelihood_sanity_check(initial_state, obs, likelihoods):
     O = jnp.eye(2)
     mu = jnp.zeros(2)
     mu = mu.at[initial_state].set(1.0)
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(
+        T, 
+        DiscreteModel(O), 
+        mu)
 
     state_log_llhood, log_llhood_sequence = log_likelihood(obs, hmm, return_stats=True)
     log_llhood = log_likelihood(obs, hmm, return_stats=False)
@@ -70,7 +73,10 @@ def test_likelihoods_dtype_errors():
         log_likelihood(obs, hmm_log)
 
 def test_likelihoods_obs_mu_mismatch():
-    hmm = HiddenMarkovParameters(jnp.eye(2), jnp.eye(2), jnp.eye(2))
+    hmm = HiddenMarkovParameters(
+        jnp.eye(2), 
+        DiscreteModel(jnp.eye(2)), 
+        jnp.eye(2))
     hmm_log = hmm.to_log()
     obs = jnp.zeros(100).astype(jnp.int32)
 
@@ -86,7 +92,7 @@ def test_log_likelihood_long_sequence(eps, n):
     T = jnp.array([[eps, 1 - eps], [0.0, 1.0]])
     O = jnp.eye(2)
     mu = jnp.array([1.0, 0.0])
-    hmm = HiddenMarkovParameters(T, O, mu)
+    hmm = HiddenMarkovParameters(T, DiscreteModel(O), mu)
     obs = jnp.zeros(n)
     obs = jnp.astype(obs, jnp.int32)
 
@@ -173,7 +179,10 @@ def test_likelihood_multiple_obs_multiple_mu():
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+    hmm = HiddenMarkovParameters(
+        T_TEST, 
+        DiscreteModel(O_TEST), 
+        jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     llhoods = likelihood(obs_arr, hmm)
 
@@ -186,7 +195,7 @@ def test_log_likelihood_multiple_obs_multiple_mu():
     test_llhoods = jnp.array(TEST_LIKELIHOODS_5_STEPS + TEST_LIKELIHOODS_5_STEPS_DIFFERENT_MU)
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+    hmm = HiddenMarkovParameters(T_TEST, DiscreteModel(O_TEST), jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     llhoods = log_likelihood(obs_arr, hmm.to_log())
 
@@ -201,7 +210,10 @@ def test_likelihood_stats_multiple_obs_multiple_mu():
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS + FINAL_STATE_DISTR_5_STEPS_DIFFERENT_MU)
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+    hmm = HiddenMarkovParameters(
+        T_TEST, 
+        DiscreteModel(O_TEST), 
+        jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     state_llhoods, llhood_seq = likelihood(obs_arr, hmm, return_stats=True)
     state_distributions = state_llhoods / jnp.sum(state_llhoods, axis=-1)[..., None]
@@ -217,7 +229,10 @@ def test_log_likelihood_stats_multiple_obs_multiple_mu():
     final_state_distr = jnp.array(FINAL_STATE_DISTR_5_STEPS + FINAL_STATE_DISTR_5_STEPS_DIFFERENT_MU)
     k = len(TEST_SEQUENCES_5_STEPS)
     l = len(TEST_SEQUENCES_5_STEPS_DIFFERENT_MU)
-    hmm = HiddenMarkovParameters(T_TEST, O_TEST, jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
+    hmm = HiddenMarkovParameters(
+        T_TEST, 
+        DiscreteModel(O_TEST), 
+        jnp.array([MU_TEST]*k + [MU_TEST_DIFFERENT]*l))
 
     state_llhoods, llhood_seq = log_likelihood(obs_arr, hmm.to_log(), return_stats=True)
     state_distributions = jnp.exp(state_llhoods - logsumexp(state_llhoods, axis=-1)[..., None])
