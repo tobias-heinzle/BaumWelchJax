@@ -135,17 +135,17 @@ class DiscreteModel(ObservationModel):
     def simulate(self, state: Array, uniform_sample: Array) -> Array:
         return jnp.argmax(self._obs_cdf(state) >= uniform_sample)
     
-    def to_log(self):
+    def to_log(self) -> Self:
         if self.is_log:
             raise ValueError('Attempted log conversion; Parameters are already logprobabilities.')
         return DiscreteModel(jnp.log(self.obs_probs), True)
     
-    def to_prob(self):
+    def to_prob(self) -> Self:
         if self.is_log:
             return DiscreteModel(jnp.exp(self.obs_probs), False)
         raise ValueError('Attempted probability conversion; Parameters are already probabilities.')
     
-    def astype(self, dtype: jax.typing.DTypeLike) -> DiscreteModel:
+    def astype(self, dtype: jax.typing.DTypeLike) -> Self:
         if not jnp.issubdtype(dtype, jnp.floating):
             raise ValueError("dtype must be floating point number")
         
@@ -154,13 +154,13 @@ class DiscreteModel(ObservationModel):
             self.is_log
         )
     
-    def construct_frozen_parameter_pytree(self, mask: Array) -> DiscreteModel:
+    def construct_frozen_parameter_pytree(self, mask: Array) -> Self:
         return DiscreteModel(mask, self.is_log)
     
     def get_params(self) -> Array:
         return self.obs_probs
     
-    def squeeze(self):
+    def squeeze(self) -> Self:
         return DiscreteModel(self.obs_probs.squeeze(), self.is_log)
 
     def check_obs_compatibility(self, obs: Array) -> bool:
@@ -249,13 +249,13 @@ class MultivariateGaussianModel(ObservationModel):
     def check_obs_compatibility(self, obs: Array) -> bool:
         return jnp.issubdtype(obs.dtype, jnp.floating)
 
-    def to_log(self) -> MultivariateGaussianModel:
+    def to_log(self) -> Self:
         return MultivariateGaussianModel(self.mean, self.covariance, is_log=True)
 
-    def to_prob(self) -> MultivariateGaussianModel:
+    def to_prob(self) -> Self:
         return MultivariateGaussianModel(self.mean, self.covariance, is_log=False)
     
-    def astype(self, dtype) -> MultivariateGaussianModel:
+    def astype(self, dtype) -> Self:
         return MultivariateGaussianModel(self.mean.astype(dtype), self.covariance.astype(dtype), is_log=self.is_log)
     
     @property
@@ -290,7 +290,7 @@ class MultivariateGaussianModel(ObservationModel):
     def get_params(self) -> Array:
         return jnp.concat([self.mean[..., None], self.covariance], axis=-1)
     
-    def squeeze(self) -> MultivariateGaussianModel:
+    def squeeze(self) -> Self:
         '''Does nothing for this model, but still present for compatibility'''
         return self
 

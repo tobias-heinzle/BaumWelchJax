@@ -120,7 +120,7 @@ class HiddenMarkovParameters:
             return jnp.all(jnp.array([valid_obs_model, correct_dims, all_positive, all_sum_to_one, is_float]))
         
     # TODO: Write a test for this
-    def construct_frozen_parameter_pytree(self, freeze_masks: FreezeMasks) -> HiddenMarkovParameters:
+    def construct_frozen_parameter_pytree(self, freeze_masks: FreezeMasks) -> Self:
         '''Based on a set of freeze masks, construct a pytree that can be used in a tree map
         to perform a masked parameter update.'''
         O_mask = self.O.construct_frozen_parameter_pytree(freeze_masks.O)
