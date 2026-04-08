@@ -8,6 +8,18 @@ from jax.scipy.special import logsumexp
 
 from .observation_models import ObservationModel
 
+
+# TODO: Refactor the parameter freezing to handle general observation models!
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class FreezeMasks:
+    """Arrays indicating which HMM parameters are held fixed during inference."""
+    T: Array
+    O: Array
+    mu: Array
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class HiddenMarkovParameters:
@@ -170,17 +182,6 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
 
         if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0, atol=1e-6):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
-
-
-# TODO: Refactor the parameter freezing to handle general observation models!
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class FreezeMasks:
-    """Arrays indicating which HMM parameters are held fixed during inference."""
-    T: Array
-    O: Array
-    mu: Array
 
 
 @dataclass(frozen=True)
