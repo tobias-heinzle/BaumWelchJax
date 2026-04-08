@@ -8,6 +8,18 @@ from jax.scipy.special import logsumexp
 
 from .observation_models import ObservationModel
 
+
+# TODO: Refactor the parameter freezing to handle general observation models!
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class FreezeMasks:
+    """Arrays indicating which HMM parameters are held fixed during inference."""
+    T: Array
+    O: Array
+    mu: Array
+
+
 @jax.tree_util.register_dataclass
 @dataclass(frozen=True)
 class HiddenMarkovParameters:
@@ -120,7 +132,7 @@ class HiddenMarkovParameters:
             return jnp.all(jnp.array([valid_obs_model, correct_dims, all_positive, all_sum_to_one, is_float]))
         
     # TODO: Write a test for this
-    def construct_frozen_parameter_pytree(self, freeze_masks: FreezeMasks) -> HiddenMarkovParameters:
+    def construct_frozen_parameter_pytree(self, freeze_masks: FreezeMasks) -> Self:
         '''Based on a set of freeze masks, construct a pytree that can be used in a tree map
         to perform a masked parameter update.'''
         O_mask = self.O.construct_frozen_parameter_pytree(freeze_masks.O)
@@ -170,17 +182,6 @@ def assert_valid_hmm(hmm: HiddenMarkovParameters):
 
         if not jnp.allclose(logsumexp(hmm.mu, axis=-1), 0.0, atol=1e-6):
             raise ValueError("mu distributions must all sum to 1 (logsumexp of logprobs must be 0)")
-
-
-# TODO: Refactor the parameter freezing to handle general observation models!
-
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
-class FreezeMasks:
-    """Arrays indicating which HMM parameters are held fixed during inference."""
-    T: Array
-    O: Array
-    mu: Array
 
 
 @dataclass(frozen=True)
