@@ -1,0 +1,4 @@
+notebooks/quickstart.ipynb -filter -diff
+notebooks/example_forward_backward.ipynb -filter -diff
+notebooks/example_inference.ipynb -filter -diff
+notebooks/prepare_test_data.ipynb -filter -diff
